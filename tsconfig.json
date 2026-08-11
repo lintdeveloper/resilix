@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // DOM is included for TYPES ONLY, to get the web-standard globals resilix relies on:
+    // AbortController, AbortSignal, performance.now, setTimeout/clearTimeout. These are the
+    // four things every target runtime provides (Node 18+, Bun, Deno, Workers, edge), which
+    // is why we depend on them rather than on @types/node — taking @types/node would make a
+    // runtime-agnostic library type-check as if it were Node-only.
+    //
+    // Nothing in src/ may use a browser-only global (document, window, localStorage).
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    // allowImportingTsExtensions requires one of noEmit/emitDeclarationOnly, and without it
+    // plain `tsc` fails with TS5096 — including inside editors, which read this file directly.
+    // tsup does all the emitting, so tsc never needs to.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

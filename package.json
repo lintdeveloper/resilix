@@ -1,0 +1,72 @@
+{
+  "name": "resilix",
+  "version": "0.0.0",
+  "description": "Load limiting for JavaScript — a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
+  "keywords": [
+    "circuit-breaker",
+    "load-shedding",
+    "load-limiting",
+    "adaptive-concurrency",
+    "resilience",
+    "retry",
+    "bulkhead",
+    "timeout",
+    "backpressure",
+    "slow-call"
+  ],
+  "license": "MIT",
+  "author": "Musa Musa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lintdeveloper/resilix.git"
+  },
+  "homepage": "https://github.com/lintdeveloper/resilix#readme",
+  "bugs": "https://github.com/lintdeveloper/resilix/issues",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "files": ["dist"],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check:package": "publint && attw --pack --profile node16",
+    "prepublishOnly": "pnpm build && pnpm test",
+    "release": "changeset publish",
+    "ci:version": "changeset version && biome format --write package.json"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^1.9.4",
+    "@changesets/cli": "^2.27.9",
+    "@vitest/coverage-v8": "^2.1.8",
+    "publint": "^0.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "packageManager": "pnpm@9.14.2"
+}
