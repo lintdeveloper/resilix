@@ -4,7 +4,7 @@ Not a bibliography. Every item is bound to a decision already in this codebase, 
 expected output — a commit, a default changed, a test added, or an ADR recorded. **"Checked, no change
 needed" is a valid output** and should be written down as one.
 
-Rule: read in order. Tier 1 is a prerequisite for v0.2, Tier 2 is a **hard gate on v0.3**.
+ADRs live in `.notes/adrs/` (local only). Rule: read in order. Tier 1 is a prerequisite for v0.2, Tier 2 is a **hard gate on v0.3**.
 
 ---
 
@@ -12,7 +12,7 @@ Rule: read in order. Tier 1 is a prerequisite for v0.2, Tier 2 is a **hard gate 
 
 | ✓ | Read | Time | The question it answers about OUR code | Expected output |
 |---|---|---|---|---|
-| ☐ | Marc Brooker — *Will circuit breakers solve my problems?* <br>`brooker.co.za/blog` | 15m | Should resilix lead with a breaker at all? He argues breakers are often the wrong tool and adaptive shedding is better. He is largely agreeing with our thesis — and will find its holes. | An ADR: *why the breaker is in v0.1 at all*, or a README change if he's right and we're wrong. |
+| ☐ | Marc Brooker — *Will circuit breakers solve my problems?* <br>`brooker.co.za/blog` | 15m | Should resilix lead with a breaker at all? He argues breakers are often the wrong tool and adaptive shedding is better. He is largely agreeing with our thesis — and will find its holes. | An ADR in `.notes/adrs/`: *why the breaker is in v0.1 at all*, or a README change if he's right and we're wrong. |
 | ☐ | AWS Builders' Library — *Timeouts, retries and backoff with jitter* | 25m | Which jitter strategy should v0.4's retry default to, and is `timeoutMs` in the right layer? | The default jitter choice for v0.4, written down before we implement it. |
 | ☐ | AWS Builders' Library — *Using load shedding to avoid overload* | 25m | Is our `rejected` verdict handled the way AWS handles shed load? Does `retryAfterMs` carry the right signal? | Confirm or fix `RejectionReason` / `retryAfterMs` semantics in `pipeline.ts`. |
 | ☐ | Google SRE Book — ch. 21 *Handling Overload* <br>`sre.google/sre-book/handling-overload` | 40m | The source for v0.4's throttler and budget, and v0.5's criticality. Check our `overload` verdict against their client-side throttling model. | The exact formula + K constant recorded for v0.4. |
