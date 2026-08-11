@@ -10,8 +10,17 @@ export interface WindowOptions {
   slowCallMs: number;
 }
 
+/**
+ * Serialised window state.
+ *
+ * Sample times are stored as an AGE relative to the moment of the snapshot, never as an
+ * absolute `now()` value. `now()` is monotonic with an arbitrary origin (process start under
+ * `performance.now()`), so an absolute value serialised in one process is meaningless in the
+ * next — the samples would rehydrate looking fresh, or dated in the future.
+ */
 export interface WindowSnapshot {
-  at: number[];
+  /** Milliseconds before the snapshot was taken, oldest first. */
+  ageMs: number[];
   latencyMs: number[];
   failure: boolean[];
 }
@@ -157,26 +166,36 @@ export class RollingWindow {
     return out;
   }
 
-  snapshot(): WindowSnapshot {
-    const at: number[] = [];
+  /** `now` is the monotonic reading at snapshot time; sample times become ages relative to it. */
+  snapshot(now: number): WindowSnapshot {
+    const ageMs: number[] = [];
     const latencyMs: number[] = [];
     const failure: boolean[] = [];
     for (let i = 0; i < this.count; i++) {
       const idx = (this.tail + i) % this.capacity;
-      at.push(this.at[idx] ?? 0);
+      ageMs.push(Math.max(0, now - (this.at[idx] ?? 0)));
       latencyMs.push(this.latency[idx] ?? 0);
       failure.push((this.failed[idx] ?? 0) === 1);
     }
-    return { at, latencyMs, failure };
+    return { ageMs, latencyMs, failure };
   }
 
-  hydrate(state: WindowSnapshot): void {
+  /**
+   * `now` is the monotonic reading in THIS process; `elapsedSinceSnapshotMs` is how long the
+   * snapshot sat unused, which is added to every sample's age so that idle time correctly
+   * ages samples out instead of silently reviving them.
+   */
+  hydrate(state: WindowSnapshot, now: number, elapsedSinceSnapshotMs = 0): void {
     this.clear();
-    const n = Math.min(state.at.length, this.capacity);
-    const offset = state.at.length - n;
+    const gap = Math.max(0, elapsedSinceSnapshotMs);
+    const n = Math.min(state.ageMs.length, this.capacity);
+    const offset = state.ageMs.length - n;
     for (let i = 0; i < n; i++) {
+      const age = (state.ageMs[offset + i] ?? 0) + gap;
+      // Samples already older than the age bound are dropped rather than rehydrated.
+      if (age > this.maxAgeMs) continue;
       this.push({
-        at: state.at[offset + i] ?? 0,
+        at: now - age,
         latencyMs: state.latencyMs[offset + i] ?? 0,
         verdict: state.failure[offset + i] === true ? "transient" : "success",
       });

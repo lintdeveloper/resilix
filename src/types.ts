@@ -119,6 +119,19 @@ export type PolicyFactory = (env: PolicyEnv) => Policy;
 
 /** Injected time source. Non-negotiable: it is what makes every temporal test deterministic. */
 export interface Clock {
-  /** Milliseconds. Monotonic is preferred but not required. */
+  /**
+   * Milliseconds, monotonic. The origin is arbitrary — `performance.now()` counts from
+   * process start — so this value is only ever meaningful as a delta against itself.
+   * Never serialise it (see `wallNow`).
+   */
   now(): number;
+  /**
+   * Epoch milliseconds. Used ONLY by snapshot/hydrate, to measure how long a snapshot sat
+   * between processes; never on the hot path.
+   *
+   * This exists because `now()` has no shared origin: a timestamp from `now()` in one
+   * process is meaningless in another, so a naively serialised window would rehydrate with
+   * samples that look fresh — or arrive from the future.
+   */
+  wallNow?(): number;
 }

@@ -77,14 +77,25 @@ export interface BreakerOptions {
   onStateChange?: (event: StateChangeEvent) => void;
 }
 
+/**
+ * Serialised breaker state.
+ *
+ * Every time value is RELATIVE, for the reason given on `WindowSnapshot`: `now()` has an
+ * arbitrary origin, so absolute readings do not survive a process boundary. `wallClockAt` lets
+ * `hydrate()` work out how long the snapshot sat idle and age everything accordingly.
+ */
 export interface BreakerSnapshot {
   state: BreakerState;
   consecutiveFailures: number;
   halfOpenSuccesses: number;
   probesInFlight: number;
-  lastProbeAt: number;
-  nextAttemptAt: number;
+  /** How long before the snapshot the in-flight probe started. */
+  lastProbeAgeMs: number;
+  /** How long after the snapshot the next probe may be admitted. Negative means "now". */
+  nextAttemptInMs: number;
   consecutiveOpens: number;
+  /** Epoch ms at snapshot time, so idle time between processes can be accounted for. */
+  wallClockAt: number;
   window: WindowSnapshot;
 }
 
@@ -321,28 +332,41 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
     };
   }
 
+  private wallNow(): number {
+    return this.clock.wallNow?.() ?? 0;
+  }
+
   snapshot(): BreakerSnapshot {
+    const now = this.clock.now();
     return {
       state: this.state,
       consecutiveFailures: this.consecutiveFailures,
       halfOpenSuccesses: this.halfOpenSuccesses,
       probesInFlight: this.probesInFlight,
-      lastProbeAt: this.lastProbeAt,
-      nextAttemptAt: this.nextAttemptAt,
+      lastProbeAgeMs: this.lastProbeAt === 0 ? 0 : Math.max(0, now - this.lastProbeAt),
+      nextAttemptInMs: this.nextAttemptAt === 0 ? 0 : this.nextAttemptAt - now,
       consecutiveOpens: this.consecutiveOpens,
-      window: this.window.snapshot(),
+      wallClockAt: this.wallNow(),
+      window: this.window.snapshot(now),
     };
   }
 
   hydrate(state: BreakerSnapshot): void {
+    const now = this.clock.now();
+    // How long this snapshot sat unused. Without accounting for it, a breaker that was open
+    // when serialised would rehydrate with its full open duration still ahead of it, and an
+    // aged-out window would come back looking current.
+    const wall = this.wallNow();
+    const gap = state.wallClockAt > 0 && wall > 0 ? Math.max(0, wall - state.wallClockAt) : 0;
+
     this.state = state.state;
     this.consecutiveFailures = state.consecutiveFailures;
     this.halfOpenSuccesses = state.halfOpenSuccesses;
     this.probesInFlight = state.probesInFlight;
-    this.lastProbeAt = state.lastProbeAt;
-    this.nextAttemptAt = state.nextAttemptAt;
+    this.lastProbeAt = state.lastProbeAgeMs === 0 ? 0 : now - state.lastProbeAgeMs - gap;
+    this.nextAttemptAt = state.nextAttemptInMs === 0 ? 0 : now + state.nextAttemptInMs - gap;
     this.consecutiveOpens = state.consecutiveOpens;
-    this.window.hydrate(state.window);
+    this.window.hydrate(state.window, now, gap);
   }
 }
 

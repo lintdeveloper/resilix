@@ -106,10 +106,52 @@ describe("RollingWindow", () => {
       a.push(obs(i * 10, i % 3 === 0 ? "transient" : "success", i % 2 === 0 ? 500 : 10));
     }
     const b = new RollingWindow({ calls: 8, maxAgeMs: 1_000_000, slowCallMs: 100 });
-    b.hydrate(a.snapshot());
+    b.hydrate(a.snapshot(110), 110);
     expect(b.size).toBe(a.size);
     expect(b.failureRate).toBeCloseTo(a.failureRate);
     expect(b.slowRate).toBeCloseTo(a.slowRate);
+  });
+
+  it("snapshots sample times as AGES, not absolute clock readings", () => {
+    // now() is monotonic with an arbitrary origin, so an absolute value serialised in one
+    // process is meaningless in the next.
+    const w = new RollingWindow({ calls: 8, maxAgeMs: 10_000, slowCallMs: 100 });
+    w.push(obs(1_000, "success"));
+    w.push(obs(1_500, "transient"));
+    const snap = w.snapshot(2_000);
+    expect(snap.ageMs).toEqual([1_000, 500]);
+    expect(snap.failure).toEqual([false, true]);
+  });
+
+  it("rehydrates correctly onto a COMPLETELY different clock origin", () => {
+    const a = new RollingWindow({ calls: 8, maxAgeMs: 10_000, slowCallMs: 100 });
+    a.push(obs(1_000, "transient"));
+    a.push(obs(1_100, "success"));
+    const snap = a.snapshot(1_200);
+
+    // Process 2's clock starts nowhere near process 1's.
+    const b = new RollingWindow({ calls: 8, maxAgeMs: 10_000, slowCallMs: 100 });
+    b.hydrate(snap, 9_000_000);
+    expect(b.size).toBe(2);
+    expect(b.failureRate).toBeCloseTo(0.5);
+    // And the samples are genuinely aged, not resurrected as brand new.
+    b.evictAgedAt(9_000_000 + 9_900);
+    expect(b.size).toBe(1);
+  });
+
+  it("ages samples out across the gap a snapshot spent idle", () => {
+    const a = new RollingWindow({ calls: 8, maxAgeMs: 5_000, slowCallMs: 100 });
+    a.push(obs(1_000, "success"));
+    const snap = a.snapshot(1_000);
+
+    const fresh = new RollingWindow({ calls: 8, maxAgeMs: 5_000, slowCallMs: 100 });
+    fresh.hydrate(snap, 0, 1_000);
+    expect(fresh.size).toBe(1);
+
+    // Sat idle longer than the age bound: the sample must NOT come back.
+    const stale = new RollingWindow({ calls: 8, maxAgeMs: 5_000, slowCallMs: 100 });
+    stale.hydrate(snap, 0, 60_000);
+    expect(stale.size).toBe(0);
   });
 
   /**

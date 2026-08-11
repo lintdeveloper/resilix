@@ -118,7 +118,9 @@ try {
 - **Bounded key registry.** Per-host state has a TTL and a hard cap, so tenant- or attacker-influenced
   keys cannot leak memory.
 - **No distributed state.** Cross-instance ejection belongs to the service mesh. `snapshot()` /
-  `hydrate()` cover the serverless case, which is what people actually need.
+  `hydrate()` cover the serverless case, which is what people actually need — and they are
+  **origin-safe**: every serialised time is relative, and idle time between processes is
+  accounted for, so a rehydrated window ages correctly instead of coming back looking fresh.
 
 ## Status
 
@@ -161,6 +163,10 @@ meter, `otel()` is a no-op, so tests need no OTel install. Observers are dispatc
 swallowing wrapper: a failing exporter can neither influence nor break an admission decision.
 
 ## Migrating from opossum (`resilix/compat/opossum`)
+
+> **Scope of the claim:** drop-in for opossum's *documented* API, verified by 28 tests written
+> against it. Running opossum's own test suite against the shim in CI is the bar for an
+> unqualified "drop-in" claim, and that is not done yet.
 
 ```diff
 - const CircuitBreaker = require('opossum');

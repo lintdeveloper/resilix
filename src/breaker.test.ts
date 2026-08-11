@@ -369,3 +369,131 @@ describe("stats", () => {
     expect(b.stats().windowSize).toBe(0);
   });
 });
+
+describe("snapshot portability across processes (ADR-005)", () => {
+  const openBreaker = (clock: FakeClock) => {
+    const b = new CircuitBreaker(
+      { slowCallMs: 100, consecutiveBackstop: 1, openForMs: 30_000 },
+      { clock },
+    );
+    b.admit();
+    b.settle({ verdict: "transient", latencyMs: 1, at: clock.now() });
+    expect(b.currentState).toBe("open");
+    return b;
+  };
+
+  it("stores every time value as a RELATIVE offset, never an absolute reading", () => {
+    const clock = new FakeClock(5_000);
+    const b = openBreaker(clock);
+    const snap = b.snapshot();
+
+    // nextAttemptInMs is a duration, not a timestamp: it must not resemble clock.now().
+    expect(snap.nextAttemptInMs).toBe(30_000);
+    expect(snap.wallClockAt).toBe(clock.wallNow());
+    expect(Object.keys(snap)).not.toContain("nextAttemptAt");
+  });
+
+  it("survives a clock with a COMPLETELY different origin", () => {
+    // This is the real bug: performance.now() counts from process start, so process 2's
+    // now() bears no relation to process 1's. A naive absolute snapshot would rehydrate
+    // with an open-until time already in the past, or absurdly far in the future.
+    const p1 = new FakeClock(1_000, 1_700_000_000_000);
+    const snap = openBreaker(p1).snapshot();
+
+    const p2 = new FakeClock(9_999_999, 1_700_000_000_000);
+    const restored = new CircuitBreaker(
+      { slowCallMs: 100, consecutiveBackstop: 1, openForMs: 30_000 },
+      { clock: p2 },
+    );
+    restored.hydrate(snap);
+
+    expect(restored.currentState).toBe("open");
+    expect(restored.admit().ok).toBe(false);
+    p2.advance(29_999);
+    expect(restored.admit().ok).toBe(false);
+    p2.advance(2);
+    expect(restored.admit().ok).toBe(true);
+  });
+
+  it("accounts for the time a snapshot sat idle between processes", () => {
+    const p1 = new FakeClock(0, 1_700_000_000_000);
+    const snap = openBreaker(p1).snapshot(); // open for 30s from here
+
+    // The snapshot sat for 20 seconds of wall time before being restored.
+    const p2 = new FakeClock(500_000, 1_700_000_000_000 + 20_000);
+    const restored = new CircuitBreaker(
+      { slowCallMs: 100, consecutiveBackstop: 1, openForMs: 30_000 },
+      { clock: p2 },
+    );
+    restored.hydrate(snap);
+
+    // Only 10s of the open period should remain, not the full 30s.
+    expect(restored.admit().ok).toBe(false);
+    p2.advance(9_999);
+    expect(restored.admit().ok).toBe(false);
+    p2.advance(2);
+    expect(restored.admit().ok).toBe(true);
+  });
+
+  it("opens straight to half-open when the snapshot outlived the open period", () => {
+    const p1 = new FakeClock(0, 1_700_000_000_000);
+    const snap = openBreaker(p1).snapshot();
+
+    const p2 = new FakeClock(0, 1_700_000_000_000 + 600_000); // ten minutes later
+    const restored = new CircuitBreaker(
+      { slowCallMs: 100, consecutiveBackstop: 1, openForMs: 30_000 },
+      { clock: p2 },
+    );
+    restored.hydrate(snap);
+    expect(restored.admit().ok).toBe(true); // a probe is due immediately
+  });
+
+  it("does not resurrect window samples that aged out while idle", () => {
+    const p1 = new FakeClock(0, 1_700_000_000_000);
+    const a = new CircuitBreaker(
+      {
+        slowCallMs: 100,
+        consecutiveBackstop: 0,
+        window: { calls: 100, maxAgeMs: 60_000, minCalls: 20 },
+      },
+      { clock: p1 },
+    );
+    for (let i = 0; i < 10; i++) {
+      a.admit();
+      a.settle({ verdict: "success", latencyMs: 5, at: p1.advance(100) });
+    }
+    expect(a.stats().windowSize).toBe(10);
+    const snap = a.snapshot();
+
+    const p2 = new FakeClock(0, 1_700_000_000_000 + 3_600_000); // an hour later
+    const restored = new CircuitBreaker(
+      {
+        slowCallMs: 100,
+        consecutiveBackstop: 0,
+        window: { calls: 100, maxAgeMs: 60_000, minCalls: 20 },
+      },
+      { clock: p2 },
+    );
+    restored.hydrate(snap);
+    expect(restored.stats().windowSize).toBe(0);
+  });
+
+  it("works when the clock provides no wallNow (gap simply unaccounted)", () => {
+    const monotonicOnly = { now: () => 1_000 };
+    const b = new CircuitBreaker(
+      { slowCallMs: 100, consecutiveBackstop: 1, openForMs: 5_000 },
+      { clock: monotonicOnly },
+    );
+    b.admit();
+    b.settle({ verdict: "transient", latencyMs: 1, at: 1_000 });
+    const snap = b.snapshot();
+    expect(snap.wallClockAt).toBe(0);
+
+    const restored = new CircuitBreaker(
+      { slowCallMs: 100, consecutiveBackstop: 1, openForMs: 5_000 },
+      { clock: monotonicOnly },
+    );
+    expect(() => restored.hydrate(snap)).not.toThrow();
+    expect(restored.currentState).toBe("open");
+  });
+});

@@ -15,6 +15,7 @@ export const systemClock: Clock = {
     typeof performance !== "undefined" && typeof performance.now === "function"
       ? () => performance.now()
       : () => Date.now(),
+  wallNow: () => Date.now(),
 };
 
 /**
@@ -23,19 +24,38 @@ export const systemClock: Clock = {
  */
 export class FakeClock implements Clock {
   private t: number;
+  private wall: number;
 
-  constructor(start = 0) {
+  /**
+   * `start` is the monotonic origin; `wallStart` is the epoch origin. They are deliberately
+   * different by default, so any test that confuses the two fails immediately — which is
+   * exactly the bug this pair of clocks exists to prevent.
+   */
+  constructor(start = 0, wallStart = 1_700_000_000_000) {
     this.t = start;
+    this.wall = wallStart;
   }
 
   now(): number {
     return this.t;
   }
 
-  /** Move time forward. Returns the new value for convenience in assertions. */
+  wallNow(): number {
+    return this.wall;
+  }
+
+  /** Move wall-clock time only — simulates a snapshot sitting idle between processes. */
+  advanceWall(ms: number): number {
+    if (ms < 0) throw new RangeError("FakeClock.advanceWall requires a non-negative duration");
+    this.wall += ms;
+    return this.wall;
+  }
+
+  /** Move both clocks forward. Returns the new monotonic value, for use in assertions. */
   advance(ms: number): number {
     if (ms < 0) throw new RangeError("FakeClock.advance requires a non-negative duration");
     this.t += ms;
+    this.wall += ms;
     return this.t;
   }
 

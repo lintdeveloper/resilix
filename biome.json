@@ -9,6 +9,28 @@
       "recommended": true,
       "correctness": {
         "useImportExtensions": "error"
+      },
+      "style": {
+        "noRestrictedGlobals": {
+          "level": "error",
+          "options": {
+            "deniedGlobals": [
+              "document",
+              "window",
+              "localStorage",
+              "sessionStorage",
+              "navigator",
+              "location",
+              "alert",
+              "XMLHttpRequest",
+              "process",
+              "require",
+              "__dirname",
+              "__filename",
+              "Buffer"
+            ]
+          }
+        }
       }
     }
   },
@@ -20,5 +42,17 @@
   },
   "files": {
     "ignore": ["dist", "node_modules", "coverage"]
-  }
+  },
+  "overrides": [
+    {
+      "include": ["src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off"
+          }
+        }
+      }
+    }
+  ]
 }
