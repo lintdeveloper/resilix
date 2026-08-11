@@ -1,5 +1,7 @@
 import { classifyHttp } from "./classify.ts";
 import { systemClock } from "./clock.ts";
+import { safeObserver } from "./observer.ts";
+import type { Observer } from "./observer.ts";
 import { KeyRegistry } from "./registry.ts";
 import type {
   Clock,
@@ -56,6 +58,11 @@ export interface PipelineOptions<I> {
   timeoutMs?: number;
   clock?: Clock;
   registry?: { maxKeys?: number; ttlMs?: number };
+  /**
+   * Passive observers — metrics, logs, traces. Dispatched through a swallowing wrapper, so
+   * a failing exporter can neither influence nor break an admission decision (ADR-010).
+   */
+  observers?: Observer[];
 }
 
 /** Handle for driving the state machines by hand, when you want to own the call. */
@@ -75,6 +82,7 @@ export class Pipeline<I = unknown> {
   private readonly classify: (outcome: unknown) => Verdict;
   private readonly timeoutMs: number | undefined;
   private readonly clock: Clock;
+  private readonly observer: Required<Observer>;
   private readonly registry: KeyRegistry<Policy[]>;
 
   constructor(options: PipelineOptions<I>) {
@@ -85,10 +93,12 @@ export class Pipeline<I = unknown> {
     this.classify = options.classify ?? classifyHttp;
     this.timeoutMs = options.timeoutMs;
     this.clock = options.clock ?? systemClock;
+    this.observer = safeObserver(options.observers ?? []);
 
     const clock = this.clock;
+    const observer = this.observer;
     this.registry = new KeyRegistry<Policy[]>({
-      factory: (key) => options.policies.map((make) => make({ key, clock })),
+      factory: (key) => options.policies.map((make) => make({ key, clock, observer })),
       maxKeys: options.registry?.maxKeys,
       ttlMs: options.registry?.ttlMs,
       clock,
@@ -126,6 +136,12 @@ export class Pipeline<I = unknown> {
       for (let i = admitted.length - 1; i >= 0; i--) {
         admitted[i]?.settle({ verdict: "rejected", latencyMs: 0, at });
       }
+      this.observer.onRejection({
+        key,
+        reason: decision.reason,
+        policy: policy.name,
+        ...(decision.retryAfterMs === undefined ? {} : { retryAfterMs: decision.retryAfterMs }),
+      });
       const gate: Gate = {
         ok: false,
         key,
@@ -139,7 +155,9 @@ export class Pipeline<I = unknown> {
 
     const settleVerdict = (verdict: Verdict, latencyMs: number): void => {
       const obs: Observation = { verdict, latencyMs, at: this.clock.now() };
+      // Innermost first, so an inner policy releases its slot before an outer one reads state.
       for (let i = admitted.length - 1; i >= 0; i--) admitted[i]?.settle(obs);
+      this.observer.onExecution({ key, verdict, latencyMs });
     };
 
     return {
@@ -202,6 +220,23 @@ export class Pipeline<I = unknown> {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
+  }
+
+  /**
+   * Pull every policy's gauges for every tracked key.
+   *
+   * Pull rather than push, so instrumentation does no work on the hot path: an exporter
+   * calls this on its own collection interval.
+   */
+  metrics(): Array<{ key: string; policy: string; values: Record<string, number> }> {
+    const out: Array<{ key: string; policy: string; values: Record<string, number> }> = [];
+    for (const key of this.registry.keys()) {
+      for (const policy of this.registry.get(key)) {
+        const values = policy.metrics?.();
+        if (values) out.push({ key, policy: policy.name, values });
+      }
+    }
+    return out;
   }
 
   snapshot(): Record<string, unknown[]> {

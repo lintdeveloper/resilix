@@ -78,12 +78,40 @@ export interface Policy<S = unknown> {
   /** Serialisable state, for serverless hydration and for tests. */
   snapshot(): S;
   hydrate(state: S): void;
+  /**
+   * Numeric gauges for telemetry, if the policy has any. Read on demand — a metrics
+   * backend pulls these rather than being pushed at, which keeps the hot path free of
+   * instrumentation work. Values must be plain numbers so any exporter can consume them.
+   */
+  metrics?(): Record<string, number>;
 }
 
 /** What a policy is built with. One policy instance exists per key. */
 export interface PolicyEnv {
   readonly key: string;
   readonly clock: Clock;
+  /** Set by the pipeline. Already wrapped so throws cannot escape into the control path. */
+  readonly observer?: PolicyObserver;
+}
+
+/**
+ * A policy state transition, in the loosest form the observer surface needs.
+ *
+ * Deliberately widened to `string` rather than importing each policy's own state union:
+ * `types.ts` must not depend on any policy module. A concrete event (the breaker's
+ * `StateChangeEvent`, with its narrower `from`/`to` and extra rate fields) is assignable
+ * to this.
+ */
+export interface PolicyStateChangeEvent {
+  key: string;
+  from: string;
+  to: string;
+  reason?: string;
+}
+
+/** The slice of the observer surface a policy is allowed to emit on. */
+export interface PolicyObserver {
+  onStateChange?(event: PolicyStateChangeEvent): void;
 }
 
 /** Policies are declared as factories so the registry can build one set per key. */

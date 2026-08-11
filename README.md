@@ -130,3 +130,66 @@ along with the C4 architecture and the reasoning behind every default.
 ## License
 
 MIT © Musa Musa
+
+---
+
+## Telemetry (`resilix/otel`)
+
+Built in, not a plugin. Under 1% of opossum users instrument their breakers, which means
+almost nobody has data at the moment they need it.
+
+```ts
+import { metrics } from "@opentelemetry/api";
+import { otel } from "resilix/otel";
+
+const instrument = otel({ meter: metrics.getMeter("checkout") });
+const api = pipeline({ policies: [...], observers: [instrument] });
+instrument.observeGauges(api);   // pull-based gauges
+```
+
+| Instrument | Type | Attributes |
+|---|---|---|
+| `resilix.executions` | counter | key, verdict |
+| `resilix.execution.duration` | histogram (ms) | key, verdict |
+| `resilix.rejections` | counter | key, reason, policy |
+| `resilix.state.transitions` | counter | key, from, to, reason |
+| `resilix.breaker.{state,failureRate,slowRate,windowSize}` | gauge | key |
+| `resilix.bulkhead.{inFlight,limit,utilisation}` | gauge | key |
+
+`@opentelemetry/api` is an **optional** peer dependency — core stays at zero deps. Without a
+meter, `otel()` is a no-op, so tests need no OTel install. Observers are dispatched through a
+swallowing wrapper: a failing exporter can neither influence nor break an admission decision.
+
+## Migrating from opossum (`resilix/compat/opossum`)
+
+```diff
+- const CircuitBreaker = require('opossum');
++ const CircuitBreaker = require('resilix/compat/opossum');
+```
+
+**Default behaviour is opossum's, not resilix's** — a compat layer must not change what your
+service does on the day you swap the import. `slowCallRate` defaults to `1` (disabled) and
+`consecutiveBackstop` to `0` (disabled), because opossum has neither concept.
+
+| opossum option | Mapping |
+|---|---|
+| `timeout` | pipeline deadline; `false` disables |
+| `errorThresholdPercentage` | `failureRate` (÷100) |
+| `resetTimeout` | `openForMs` |
+| `rollingCountTimeout` | `window.maxAgeMs` |
+| `rollingCountBuckets` | accepted and **ignored** — our window is not bucketed |
+| `volumeThreshold` | `window.minCalls` |
+| `errorFilter` | wrapped into a classifier: `true` ⇒ not a failure |
+| `capacity` | `bulkhead({ concurrency })` |
+| `cache`, `coalesce`, `cacheTTL` | **throws.** Out of scope — silently accepting them would be worse |
+
+Supported: `fire`, `fallback`, `on`/`off`/`removeAllListeners`, `open`/`close`,
+`enable`/`disable`, `opened`/`closed`/`halfOpen`/`pendingClose`, `stats`, `status`,
+`isOurError`, and the `fire`/`success`/`failure`/`timeout`/`reject`/`open`/`close`/`halfOpen`/
+`fallback`/`semaphoreLocked` events.
+
+Opt back into the resilix behaviour when you're ready:
+
+```js
+new CircuitBreaker(action, { slowCallMs: 3000, slowCallRate: 0.5, consecutiveBackstop: 10 });
+```

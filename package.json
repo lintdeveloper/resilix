@@ -1,7 +1,7 @@
 {
   "name": "resilix",
   "version": "0.0.0",
-  "description": "Load limiting for JavaScript — a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
+  "description": "Load limiting for JavaScript \u2014 a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
   "keywords": [
     "circuit-breaker",
     "load-shedding",
@@ -42,6 +42,26 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./otel": {
+      "import": {
+        "types": "./dist/otel.d.ts",
+        "default": "./dist/otel.js"
+      },
+      "require": {
+        "types": "./dist/otel.d.cts",
+        "default": "./dist/otel.cjs"
+      }
+    },
+    "./compat/opossum": {
+      "import": {
+        "types": "./dist/compat/opossum.d.ts",
+        "default": "./dist/compat/opossum.js"
+      },
+      "require": {
+        "types": "./dist/compat/opossum.d.cts",
+        "default": "./dist/compat/opossum.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -68,5 +88,13 @@
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },
-  "packageManager": "pnpm@9.14.2"
+  "packageManager": "pnpm@9.14.2",
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  }
 }

@@ -1,6 +1,14 @@
 import { systemClock } from "./clock.ts";
 import { ADMIT, isFailureVerdict, isIgnoredVerdict, refuse } from "./types.ts";
-import type { Admission, Clock, Observation, Policy, PolicyEnv, PolicyFactory } from "./types.ts";
+import type {
+  Admission,
+  Clock,
+  Observation,
+  Policy,
+  PolicyEnv,
+  PolicyFactory,
+  PolicyObserver,
+} from "./types.ts";
 import { RollingWindow } from "./window.ts";
 import type { WindowSnapshot } from "./window.ts";
 
@@ -112,6 +120,7 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
 
   private readonly key: string;
   private readonly clock: Clock;
+  private readonly observer: PolicyObserver | undefined;
   private readonly window: RollingWindow;
 
   private readonly failureRateThreshold: number;
@@ -142,6 +151,7 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
     }
     this.key = env?.key ?? "default";
     this.clock = env?.clock ?? systemClock;
+    this.observer = env?.observer;
 
     this.failureRateThreshold = options.failureRate ?? DEFAULTS.failureRate;
     this.slowRateThreshold = options.slowCallRate ?? DEFAULTS.slowCallRate;
@@ -293,7 +303,22 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
     const from = this.state;
     if (from === to) return;
     this.state = to;
-    this.onStateChange?.({ key: this.key, from, to, ...detail });
+    const event: StateChangeEvent = { key: this.key, from, to, ...detail };
+    this.onStateChange?.(event);
+    this.observer?.onStateChange?.(event);
+  }
+
+  /** Gauges for telemetry. `state` is 0 closed / 1 half-open / 2 open. */
+  metrics(): Record<string, number> {
+    const s = this.stats();
+    return {
+      state: s.state === "closed" ? 0 : s.state === "half-open" ? 1 : 2,
+      failureRate: s.failureRate,
+      slowRate: s.slowRate,
+      windowSize: s.windowSize,
+      consecutiveFailures: this.consecutiveFailures,
+      consecutiveOpens: this.consecutiveOpens,
+    };
   }
 
   snapshot(): BreakerSnapshot {
