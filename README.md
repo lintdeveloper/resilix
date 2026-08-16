@@ -5,8 +5,8 @@ failing* — and that knows a `404` is an answer, not an outage.
 
 Zero dependencies. No I/O. Pure state machines.
 
-Runs on Node 18/20/22/24, Bun, Deno and Cloudflare Workers — [verified in CI on every
-push](.github/workflows/runtimes.yml) by importing the built artifact and driving a real breaker,
+Runs on Node 18/20/22/24, Bun, Deno and Cloudflare Workers — verified in CI on every push
+(`.github/workflows/runtimes.yml`) by importing the built artifact and driving a real breaker,
 not asserted. The Workers job specifically proves a module-scope import is side-effect free,
 which is the thing that crashes some libraries at the edge.
 
@@ -250,12 +250,12 @@ Pre-release.
 - **v0.1** classifier · circuit breaker · dual-bound window · key registry · pipeline executor
 - **v0.2** `resilix/otel` · `resilix/compat/opossum` · bulkhead · observers
 - **v0.3** adaptive concurrency limiting · P² streaming quantiles · proportional shedding —
-  built to [`docs/specs/adaptive-limiter.md`](docs/specs/adaptive-limiter.md)
+  built to `docs/specs/adaptive-limiter.md`
 - **v0.4** next: adaptive throttler, retry with budgets, rate limiter
 
-The full roadmap — adaptive concurrency limiting, adaptive throttling, execution
-budgets, hedging, criticality — is in [`docs/resilix-architecture.pdf`](docs/resilix-architecture.pdf),
-along with the C4 architecture and the reasoning behind every default.
+What is still ahead — adaptive throttling, execution budgets, hedging, criticality and
+per-tenant fairness, then inbound protection — is in `docs/resilix-architecture.pdf`, along with
+the C4 architecture and the reasoning behind every default.
 
 
 ## Telemetry (`resilix/otel`)
