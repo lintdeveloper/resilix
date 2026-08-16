@@ -61,6 +61,8 @@ export class RollingWindow {
 
   private failures = 0;
   private slowCalls = 0;
+  /** Set once a sample has been dropped for age rather than for capacity. */
+  private evictedByAge = false;
 
   constructor(options: WindowOptions) {
     if (!Number.isInteger(options.calls) || options.calls < 1) {
@@ -129,11 +131,22 @@ export class RollingWindow {
     this.evictOlderThan(now - this.maxAgeMs);
   }
 
+  /**
+   * True when the age bound — not the capacity bound — is what is limiting this window.
+   *
+   * Used to detect starvation: if samples are being dropped for age while the window still
+   * holds fewer than the breaker's `minCalls`, the rate conditions can never fire.
+   */
+  get agedOut(): boolean {
+    return this.evictedByAge;
+  }
+
   /** Drop samples older than `cutoff`, keeping the counters exact. Amortised O(1). */
   evictOlderThan(cutoff: number): void {
     while (this.count > 0) {
       const t = this.at[this.tail] ?? 0;
       if (t >= cutoff) break;
+      this.evictedByAge = true;
       this.dropOldest();
     }
   }
@@ -150,6 +163,7 @@ export class RollingWindow {
     this.count = 0;
     this.failures = 0;
     this.slowCalls = 0;
+    this.evictedByAge = false;
   }
 
   /** Oldest-to-newest, for snapshots and for the property test's brute-force recount. */

@@ -1,4 +1,4 @@
-import { classifyHttp } from "./classify.ts";
+import { classifyHttp, retryAfterFrom } from "./classify.ts";
 import { systemClock } from "./clock.ts";
 import { safeObserver } from "./observer.ts";
 import type { Observer } from "./observer.ts";
@@ -42,6 +42,24 @@ export interface ExecutionContext {
   readonly key: string;
   /** Present only when a timeout is configured. Pass it to `fetch`, undici, or a driver. */
   readonly signal: AbortSignal | undefined;
+  /**
+   * Declare that the *meaningful* latency of this call has just elapsed.
+   *
+   * By default a call's latency is its total duration, which is wrong for anything
+   * streaming. A streamed LLM completion legitimately runs for 45 seconds; what actually
+   * indicates health is **time to first token**. Judging it on total duration means every
+   * healthy stream looks slow, and the slow-call breaker opens on a perfectly good upstream.
+   *
+   *   await pipeline.execute(req, async (ctx) => {
+   *     const res = await fetch(url, { signal: ctx.signal });
+   *     ctx.mark();                 // <- TTFB/TTFT: this is the health signal
+   *     return consumeStream(res);  // may run for another 45s; not counted
+   *   });
+   *
+   * Only the first call counts; later calls are ignored. If never called, total duration
+   * is used, which is the right default for a unary request.
+   */
+  mark(): void;
 }
 
 export interface PipelineOptions<I> {
@@ -153,18 +171,32 @@ export class Pipeline<I = unknown> {
       return gate;
     }
 
-    const settleVerdict = (verdict: Verdict, latencyMs: number): void => {
+    const settleVerdict = (verdict: Verdict, latencyMs: number, retryAfterMs?: number): void => {
       const obs: Observation = { verdict, latencyMs, at: this.clock.now() };
       // Innermost first, so an inner policy releases its slot before an outer one reads state.
       for (let i = admitted.length - 1; i >= 0; i--) admitted[i]?.settle(obs);
-      this.observer.onExecution({ key, verdict, latencyMs });
+      this.observer.onExecution({
+        key,
+        verdict,
+        latencyMs,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      });
     };
 
     return {
       ok: true,
       key,
       settleVerdict,
-      settle: (outcome, latencyMs) => settleVerdict(this.classify(outcome), latencyMs),
+      settle: (outcome, latencyMs) => {
+        const verdict = this.classify(outcome);
+        // Only parse Retry-After when the verdict says the upstream is shedding — header
+        // parsing is wasted work on the overwhelmingly common healthy path.
+        const retryAfterMs =
+          verdict === "overload"
+            ? retryAfterFrom(outcome, this.clock.wallNow?.() ?? this.clock.now())
+            : undefined;
+        settleVerdict(verdict, latencyMs, retryAfterMs);
+      },
     };
   }
 
@@ -181,7 +213,14 @@ export class Pipeline<I = unknown> {
       throw new RejectedError(gate.key, gate.reason ?? "circuit-open", gate.retryAfterMs);
 
     const started = this.clock.now();
-    const elapsed = (): number => Math.max(0, this.clock.now() - started);
+    // `mark()` freezes the latency at the caller's chosen moment — time to first token for a
+    // stream. Without it we would judge a 45s streamed completion as slow, which is how a
+    // slow-call breaker opens on a perfectly healthy streaming upstream.
+    let markedAt: number | undefined;
+    const mark = (): void => {
+      if (markedAt === undefined) markedAt = this.clock.now();
+    };
+    const elapsed = (): number => Math.max(0, (markedAt ?? this.clock.now()) - started);
 
     let controller: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -189,7 +228,7 @@ export class Pipeline<I = unknown> {
     try {
       const ms = this.timeoutMs;
       if (ms === undefined) {
-        const result = await fn({ key: gate.key, signal: undefined });
+        const result = await fn({ key: gate.key, signal: undefined, mark });
         gate.settle(result, elapsed());
         return result;
       }
@@ -209,7 +248,7 @@ export class Pipeline<I = unknown> {
         // `unref` where available so a pending deadline cannot hold a Node process open.
         // Absent on Workers/Deno/browsers, where the timer handle is a plain number.
         (timer as unknown as { unref?: () => void }).unref?.();
-        Promise.resolve(fn({ key: gate.key, signal })).then(resolve, reject);
+        Promise.resolve(fn({ key: gate.key, signal, mark })).then(resolve, reject);
       });
 
       gate.settle(result, elapsed());

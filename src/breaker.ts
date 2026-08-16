@@ -187,14 +187,38 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
   }
 
   /** Live rates, after age eviction. Exposed for telemetry — these are what you tune against. */
-  stats(): { failureRate: number; slowRate: number; windowSize: number; state: BreakerState } {
+  stats(): {
+    failureRate: number;
+    slowRate: number;
+    windowSize: number;
+    state: BreakerState;
+    starved: boolean;
+  } {
     this.window.evictAgedAt(this.clock.now());
     return {
       failureRate: this.window.failureRate,
       slowRate: this.window.slowRate,
       windowSize: this.window.size,
       state: this.state,
+      starved: this.starved,
     };
+  }
+
+  /**
+   * True when both rate conditions are inert because the window cannot reach `minCalls`.
+   *
+   * A window bounded by age holds at most `maxAgeMs / callDuration` samples, so an upstream
+   * whose calls take longer than `maxAgeMs / minCalls` can NEVER accrue enough samples — the
+   * failure-rate and slow-rate conditions are silently dead and only the consecutive backstop
+   * is protecting you. With the defaults that boundary is 300_000/20 = 15 seconds, which
+   * ordinary streaming and LLM workloads exceed routinely.
+   *
+   * This is the same class of hole the consecutive backstop closes for sparse traffic, but
+   * caused by slow calls rather than few calls. It cannot be detected at construction time,
+   * so it is surfaced here and as a gauge instead of being left invisible.
+   */
+  get starved(): boolean {
+    return this.state === "closed" && this.window.agedOut && this.window.size < this.minCalls;
   }
 
   admit(): Admission {
@@ -329,6 +353,9 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
       windowSize: s.windowSize,
       consecutiveFailures: this.consecutiveFailures,
       consecutiveOpens: this.consecutiveOpens,
+      // 1 when both rate conditions are inert because the window cannot reach minCalls.
+      // Alert on this: it means only the consecutive backstop is protecting the upstream.
+      starved: s.starved ? 1 : 0,
     };
   }
 

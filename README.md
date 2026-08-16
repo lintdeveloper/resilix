@@ -51,6 +51,42 @@ const res = await api.execute(req, (ctx) => fetch(req.url, { signal: ctx.signal 
 
 Refused calls throw `RejectedError` with a `reason` and, where known, `retryAfterMs`.
 
+### Streaming: mark the latency that matters
+
+A call's latency defaults to its total duration. That is wrong for anything streaming — a
+45-second LLM completion is healthy if the first token arrived in 300 ms. Judge it on total
+duration and every healthy stream looks slow, so the slow-call breaker opens on a perfectly good
+upstream. Call `ctx.mark()` at the moment that actually indicates health:
+
+```ts
+await api.execute(req, async (ctx) => {
+  const res = await fetch(url, { signal: ctx.signal });
+  ctx.mark();                 // time to first token — the health signal
+  return consumeStream(res);  // may run for another 45s; not counted
+});
+```
+
+### Watch for a starved window
+
+A window bounded by age holds at most `maxAgeMs / callDuration` samples, so an upstream whose
+calls take longer than `maxAgeMs / minCalls` — **15 s at the defaults** — can never reach
+`minCalls`. Both rate conditions then sit inert and only the consecutive backstop protects you.
+This is the same hole the backstop closes for sparse traffic, caused by slow calls instead of
+few calls. resilix cannot detect it at construction time, so it reports it:
+`breaker.stats().starved`, and the `resilix.breaker.starved` gauge. **Alert on it.**
+
+### Guarding a database
+
+`classifyHttp` is wrong for SQL: it calls a unique-violation `transient`, so a burst of
+duplicate inserts looks like the database falling over. Use `classifySql`, which maps
+constraint and syntax errors to `answered`, pool exhaustion and deadlocks to `overload`, and
+only genuine unavailability to `transient`:
+
+```ts
+import { classifySql } from "resilix";
+pipeline({ classify: classifySql, policies: [bulkhead({ concurrency: 10 }), breaker({ ... })] });
+```
+
 ## The verdict model
 
 One settled call, read differently by each policy. This table is the design:

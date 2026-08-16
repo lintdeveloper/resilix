@@ -104,6 +104,42 @@ export function classifyHttp(input: unknown): Verdict {
 }
 
 /**
+ * Read a `Retry-After` off anything with a `headers` bag — a `Response`, an axios error, an
+ * undici response — and return it in milliseconds.
+ *
+ * This is what makes `overload` actionable rather than merely informative: a 429 that tells
+ * you when to come back is strictly better than one that does not, and the number belongs to
+ * the caller and to the retry policy (v0.4), not just to a log line.
+ */
+export function retryAfterFrom(input: unknown, now: number): number | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+
+  const holder = input as {
+    headers?: unknown;
+    response?: { headers?: unknown } | undefined;
+  };
+  const headers = holder.headers ?? holder.response?.headers;
+  if (typeof headers !== "object" || headers === null) return undefined;
+
+  // A WHATWG Headers / undici Headers instance.
+  const asGettable = headers as { get?: (name: string) => string | null };
+  if (typeof asGettable.get === "function") {
+    return parseRetryAfter(asGettable.get("retry-after"), now);
+  }
+
+  // A plain object, as axios and node:http produce. Header names are case-insensitive.
+  const bag = headers as Record<string, unknown>;
+  for (const name of ["retry-after", "Retry-After", "RETRY-AFTER"]) {
+    const value = bag[name];
+    if (typeof value === "string") return parseRetryAfter(value, now);
+    if (Array.isArray(value) && typeof value[0] === "string") {
+      return parseRetryAfter(value[0], now);
+    }
+  }
+  return undefined;
+}
+
+/**
  * Parse a `Retry-After` header into milliseconds. Accepts both forms in the spec:
  * delta-seconds and an HTTP-date. Returns undefined when absent or unparseable.
  *

@@ -5,6 +5,12 @@ export interface ExecutionEvent {
   key: string;
   verdict: Verdict;
   latencyMs: number;
+  /**
+   * The upstream's own `Retry-After`, in ms, when it sent one with an `overload` outcome.
+   * This is the number a retry policy should wait for rather than guessing a backoff, and
+   * the number to graph when a provider starts rate-limiting you.
+   */
+  retryAfterMs?: number;
 }
 
 export interface RejectionEvent {

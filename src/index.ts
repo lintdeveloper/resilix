@@ -36,3 +36,5 @@ export { Bulkhead, bulkhead } from "./bulkhead.ts";
 export type { BulkheadOptions, BulkheadSnapshot } from "./bulkhead.ts";
 export { safeObserver } from "./observer.ts";
 export type { ExecutionEvent, Observer, RejectionEvent } from "./observer.ts";
+export { classifySql } from "./classify-sql.ts";
+export { retryAfterFrom } from "./classify.ts";
