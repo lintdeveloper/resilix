@@ -167,6 +167,50 @@ limit during a lull. And because the control loop runs on call settlement rather
 (resilix has no timers), `staleAfterMs` exists to stop a limiter clamped during an incident from
 staying clamped forever once traffic goes quiet.
 
+## Retry, budgets and throttling
+
+```ts
+import { pipeline, breaker, limiter, throttler, budget } from "resilix";
+
+const shared = budget({ ratio: 0.1 });   // ONE instance for the whole process
+
+const api = pipeline({
+  policies: [throttler(), breaker({ slowCallMs: 3_000 }), limiter()],
+  retry: { maxAttempts: 3, jitter: "full", budget: shared },
+  timeoutMs: 10_000,
+});
+```
+
+**Retries are an amplifier.** Three attempts per request turns a degraded upstream into a 3×
+load spike exactly when it can least absorb one. A 10% budget holds that to ~1.1× — Google SRE's
+number, and one this repo reproduces in a test rather than quoting.
+
+The budget is a **shared object**. A per-pipeline cap cannot bound system-wide amplification,
+which is the entire point of having one.
+
+Which failures are retried falls out of the verdict model: `answered` never (the upstream
+worked, the caller was wrong), `rejected` never (we refused it), `transient` / `timeout` /
+`overload` yes — and `overload` waits for the upstream's own `Retry-After` in preference to any
+backoff curve.
+
+`timeoutMs` bounds **the whole sequence**, not each attempt. Most libraries bound each attempt,
+so a caller asking for 50 ms can wait `maxAttempts × (50 ms + backoff)`. A deadline the caller
+cannot see is not a deadline.
+
+### Four ways to be refused
+
+| Refused by | `reason` | Means |
+|---|---|---|
+| breaker | `circuit-open` | the upstream looks wholly down |
+| limiter | `limiter-full` | too many in flight *for current latency* |
+| throttler | `throttled` | too many recent attempts were not accepted |
+| bulkhead | `bulkhead-full` | a hard concurrency cap you configured |
+| rate limiter | `rate-limited` | a fixed rate you configured |
+| budget | `budget-exceeded` | the *retry* was refused; the first attempt was not |
+
+Every one arrives as `RejectedError.reason` and on `onRejection`, so "why was I refused?" always
+has an answer.
+
 ## When a circuit breaker is the wrong tool
 
 Worth saying plainly, because it is the best-known criticism of the pattern and it is correct.
@@ -251,7 +295,7 @@ Pre-release.
 - **v0.2** `resilix/otel` · `resilix/compat/opossum` · bulkhead · observers
 - **v0.3** adaptive concurrency limiting · P² streaming quantiles · proportional shedding —
   built to `docs/specs/adaptive-limiter.md`
-- **v0.4** next: adaptive throttler, retry with budgets, rate limiter
+- **v0.4** retry with full jitter · shared retry budgets · SRE adaptive throttler · token-bucket rate limiter
 
 What is still ahead — adaptive throttling, execution budgets, hedging, criticality and
 per-tenant fairness, then inbound protection — is in `docs/resilix-architecture.pdf`, along with
