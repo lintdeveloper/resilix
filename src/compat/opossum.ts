@@ -33,6 +33,10 @@ export interface OpossumOptions {
   volumeThreshold?: number;
   /** Start disabled. */
   enabled?: boolean;
+  /** Deprecated in opossum; kept so the same deprecation warning is emitted. */
+  maxFailures?: number;
+  /** Rolling percentile tracking. Accepted; percentiles are not computed. */
+  rollingPercentilesEnabled?: boolean;
   /**
    * Return true for errors that should NOT count as failures. Receives the error followed by
    * the arguments the call was fired with, which opossum's tests rely on.
@@ -421,6 +425,14 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
           `resilix/compat/opossum does not support \`${key}\`. Response caching and call coalescing are deliberately out of scope; keep opossum for that breaker, or cache at your transport layer.`,
         );
       }
+    }
+
+    if (options.maxFailures !== undefined) {
+      // opossum warns rather than throws, and its test captures console.error to assert the
+      // exact wording.
+      console.error(
+        "options.maxFailures is deprecated. Please use options.errorThresholdPercentage",
+      );
     }
 
     this.action = asAction<TArgs, TReturn>(action);
@@ -865,7 +877,8 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     // Emit the RAW return value, before awaiting it. opossum's test registers a `fallback`
     // listener and awaits the promise itself, so a fallback that rejects must still reach
     // the listener — awaiting first would throw here and the event would never fire.
-    const raw = this.fallbackFn(...args);
+    // opossum appends the error as the LAST argument, after the original call arguments.
+    const raw = this.fallbackFn(...args, error);
     this.emitter.emit("fallback", raw, error);
     return (await raw) as TReturn;
   }
