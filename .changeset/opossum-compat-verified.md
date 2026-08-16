@@ -4,17 +4,20 @@
 
 The opossum compatibility claim is now measured, not asserted.
 
-`resilix/compat/opossum` passes **335 of 360** of opossum's own test suite (93%), run unmodified
+`resilix/compat/opossum` passes **362 of 362** of opossum's own test suite, run unmodified
 against the shim. `pnpm test:compat` reproduces it and fails if the README's number drifts.
 
-Running their suite rather than tests written from their documentation found ten behavioural
-differences. The two that no amount of reading would have surfaced:
+Running their suite rather than tests written from their documentation found a dozen
+behavioural differences. The three that no amount of reading would have surfaced:
 
 - **opossum's default `this` for the action is the action function itself**, not undefined.
   Their context-test hangs a property off the function and expects a plain `fire()` to read it.
 - **The timeout timer must not be unref'd.** resilix's own pipeline unrefs so a pending deadline
   cannot hold a process open, and copying that here meant a caller whose own timers were unref'd
   never settled at all — node exited first. Fixing it moved the suite from 59% to 75%.
+- **A refusal must reject synchronously.** An `async` function defers even an immediate throw by
+  a microtask; their half-open test fires into an open circuit and calls `t.end()` in the very
+  next `.then`, so arriving one tick late meant the assertion never ran.
 
 Newly implemented to match: `shutdown`/`isShutdown`, `healthCheck`, `options`, `action`,
 `toJSON`, `call`, `getSignal`/`getAbortController`, the abort-controller family, the bucketed
