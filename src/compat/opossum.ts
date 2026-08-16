@@ -712,8 +712,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     return this;
   }
 
-  fallback(fn: (...args: unknown[]) => unknown): this {
-    this.fallbackFn = fn;
+  fallback(
+    fn: ((...args: unknown[]) => unknown) | { fire: (...args: unknown[]) => unknown },
+  ): this {
+    // opossum lets another CircuitBreaker be the fallback, chaining one circuit into the next.
+    this.fallbackFn = typeof fn === "function" ? fn : (...args: unknown[]) => fn.fire(...args);
     return this;
   }
 
@@ -857,11 +860,14 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   private async runFallback(args: TArgs, error: unknown): Promise<TReturn> {
-    if (!this.fallbackFn) throw error;
+    if (this.fallbackFn === undefined) throw error;
     this.statusWindow.increment("fallbacks");
-    const result = (await this.fallbackFn(...args)) as TReturn;
-    this.emitter.emit("fallback", result, error);
-    return result;
+    // Emit the RAW return value, before awaiting it. opossum's test registers a `fallback`
+    // listener and awaits the promise itself, so a fallback that rejects must still reach
+    // the listener — awaiting first would throw here and the event would never fire.
+    const raw = this.fallbackFn(...args);
+    this.emitter.emit("fallback", raw, error);
+    return (await raw) as TReturn;
   }
 }
 
