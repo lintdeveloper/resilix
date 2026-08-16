@@ -29,8 +29,6 @@ export interface OpossumOptions {
   resetTimeout?: number;
   /** Rolling statistical window, in ms. Default 10_000. */
   rollingCountTimeout?: number;
-  /** Accepted for compatibility and IGNORED: the resilix window is not bucketed. */
-  rollingCountBuckets?: number;
   /** Minimum calls in the window before the error percentage is considered. Default 0. */
   volumeThreshold?: number;
   /** Return true for errors that should NOT count as failures. */
@@ -45,6 +43,12 @@ export interface OpossumOptions {
   state?: OpossumState;
   /** Do not open the circuit until this many ms have elapsed since construction. */
   allowWarmUp?: boolean;
+  /** Aborted when a call times out. Any object with an `abort()` method is accepted. */
+  abortController?: { abort: () => void; signal?: unknown };
+  /** Create a fresh AbortController per call, and again when the circuit half-opens. */
+  autoRenewAbortController?: boolean;
+  /** Accepted for compatibility and IGNORED: the resilix window is not bucketed. */
+  rollingCountBuckets?: number;
   /** Not supported — see the notes in the README. Throws if set. */
   cache?: boolean;
   /** Not supported. Throws if set. */
@@ -176,6 +180,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   private shutdown_ = false;
   private readonly warmUpUntil: number;
   private lastTimerAt: number | undefined;
+  private abortController: { abort: () => void; signal?: unknown } | undefined;
+  private autoRenew = false;
+  private halfOpenTimer: ReturnType<typeof setTimeout> | undefined;
   private enabled_ = true;
   private forcedOpen = false;
   private forcedClosed = false;
@@ -229,8 +236,19 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       errorThresholdPercentage: options.errorThresholdPercentage ?? 50,
       resetTimeout: options.resetTimeout ?? 30_000,
       rollingCountTimeout: options.rollingCountTimeout ?? 10_000,
+      rollingCountBuckets: options.rollingCountBuckets ?? 10,
       volumeThreshold: options.volumeThreshold ?? 0,
     };
+
+    if (options.abortController !== undefined) {
+      if (typeof options.abortController.abort !== "function") {
+        throw new TypeError("AbortController does not contain `abort()` method");
+      }
+      this.abortController = options.abortController;
+    } else if (options.autoRenewAbortController === true) {
+      this.autoRenew = true;
+      this.abortController = new AbortController();
+    }
     this.name = options.name ?? action.name ?? "anonymous";
     this.warmUpUntil =
       options.allowWarmUp === true
@@ -270,9 +288,19 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         // opossum closes on the first successful half-open call.
         halfOpen: { probes: 1, successesToClose: 1 },
         onStateChange: (event) => {
-          if (event.to === "open") this.emitter.emit("open");
-          else if (event.to === "closed") this.emitter.emit("close");
-          else if (event.to === "half-open") this.emitter.emit("halfOpen");
+          if (event.to === "open") {
+            // resilix's breaker is LAZY: it only moves to half-open when admit() is next
+            // called. opossum's is timer-driven, and its tests observe the half-open effects
+            // (a renewed abort signal) without making a call. Emulate the timer here.
+            this.scheduleHalfOpenRenewal(event.openForMs ?? this.options.resetTimeout);
+            this.emitter.emit("open");
+          } else if (event.to === "closed") this.emitter.emit("close");
+          else if (event.to === "half-open") {
+            // opossum issues a fresh signal when the circuit half-opens, so the next trial
+            // call is not handed an already-aborted one.
+            if (this.autoRenew) this.abortController = new AbortController();
+            this.emitter.emit("halfOpen");
+          }
         },
       },
       { key: this.name, clock: this.clock },
@@ -328,6 +356,29 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     };
   }
 
+  /**
+   * Renew the abort controller once the reset timeout elapses, so a caller inspecting
+   * `getSignal()` after the circuit has been open long enough sees a fresh, unaborted signal
+   * — which is what opossum's timer-driven model produces.
+   */
+  private scheduleHalfOpenRenewal(afterMs: number): void {
+    if (!this.autoRenew || this.shutdown_) return;
+    if (this.halfOpenTimer !== undefined) clearTimeout(this.halfOpenTimer);
+    this.halfOpenTimer = setTimeout(() => {
+      this.halfOpenTimer = undefined;
+      if (!this.shutdown_) this.abortController = new AbortController();
+    }, afterMs);
+    (this.halfOpenTimer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * The current abort signal, or undefined when no abort controller is configured.
+   * opossum's tests assert this is falsy without one and truthy with `autoRenewAbortController`.
+   */
+  getSignal(): AbortSignal | undefined {
+    return this.abortController?.signal as AbortSignal | undefined;
+  }
+
   /** opossum's `fire` with an explicit `this` for the action. */
   call(context: unknown, ...args: TArgs): Promise<TReturn> {
     return this.fire_(context, args);
@@ -358,6 +409,10 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     if (this.healthCheckTimer !== undefined) {
       clearInterval(this.healthCheckTimer);
       this.healthCheckTimer = undefined;
+    }
+    if (this.halfOpenTimer !== undefined) {
+      clearTimeout(this.halfOpenTimer);
+      this.halfOpenTimer = undefined;
     }
     this.emitter.emit("shutdown");
   }
@@ -471,10 +526,17 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
           const failure = new OpossumError(`Timed out after ${ms}ms`, "ETIMEDOUT");
           timer = setTimeout(() => {
             this.stats.timeouts++;
+            this.abortController?.abort();
             this.emitter.emit("timeout", failure);
             reject(failure);
           }, ms);
-          (timer as unknown as { unref?: () => void }).unref?.();
+          // Deliberately NOT unref'd, unlike resilix's own pipeline.
+          //
+          // opossum's timeout timer holds the event loop open, and its suite depends on it:
+          // `slowFunction` unrefs ITS timer, so if we unref ours too, nothing keeps the
+          // process alive, node exits before either fires, and the test never settles. Under
+          // real opossum a pending fire() with a timeout keeps the process up, and a compat
+          // layer has to match that.
           Promise.resolve(this.action.apply(context, args)).then(
             resolve as (v: unknown) => void,
             reject,
