@@ -223,6 +223,8 @@ class OpossumStatus {
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly controller: OpossumOptions["rotateBucketController"];
   private readonly rotateListener: () => void;
+  /** Listeners registered directly on `status`, kept apart from the breaker's own. */
+  private readonly own = new Emitter();
 
   constructor(
     bucketCount: number,
@@ -252,6 +254,26 @@ class OpossumStatus {
     return this.buckets;
   }
 
+  /** opossum reads `status.stats` as a property, not a call. */
+  get stats(): OpossumStats {
+    return this.snapshot();
+  }
+
+  on(event: string, listener: (...args: unknown[]) => void): this {
+    this.own.on(event, listener);
+    return this;
+  }
+
+  removeListener(event: string, listener: (...args: unknown[]) => void): this {
+    this.own.off(event, listener);
+    return this;
+  }
+
+  removeAllListeners(event?: string): this {
+    this.own.removeAllListeners(event);
+    return this;
+  }
+
   get current(): OpossumBucket {
     return this.buckets[0] as OpossumBucket;
   }
@@ -268,13 +290,16 @@ class OpossumStatus {
   }
 
   rotate(): void {
+    const snapshot = this.snapshot();
     this.buckets.pop();
     this.buckets.unshift(emptyBucket());
-    this.emitter.emit("rollingCounts", this.stats());
+    this.emitter.emit("rollingCounts", snapshot);
+    this.own.emit("rollingCounts", snapshot);
+    this.own.emit("snapshot", snapshot);
   }
 
   /** Aggregate across the window, which is what opossum's `stats` reports. */
-  stats(): OpossumStats {
+  snapshot(): OpossumStats {
     const total = emptyBucket() as unknown as Record<string, number>;
     let latencyCount = 0;
     let latencySum = 0;
@@ -319,6 +344,15 @@ class OpossumStatus {
   }
 }
 
+/**
+ * opossum accepts a non-function "action" and simply resolves it. Their test constructs
+ * `new CircuitBreaker('foobar')` and expects `fire()` to resolve to `'foobar'`.
+ */
+const asAction = <A extends unknown[], R>(
+  action: ((...args: A) => R | Promise<R>) | R,
+): ((...args: A) => R | Promise<R>) =>
+  typeof action === "function" ? (action as (...args: A) => R | Promise<R>) : () => action as R;
+
 export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unknown> {
   private readonly breaker: ResilixBreaker;
   private readonly semaphore: Bulkhead | undefined;
@@ -359,13 +393,13 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
 
   /** Aggregated over the rolling window, as opossum reports it. */
   get stats(): OpossumStats {
-    return this.statusWindow.stats();
+    return this.statusWindow.snapshot();
   }
 
   static isOurError = isOurError;
 
   constructor(
-    action: (...args: TArgs) => TReturn | Promise<TReturn>,
+    action: ((...args: TArgs) => TReturn | Promise<TReturn>) | TReturn,
     options: OpossumOptions = {},
   ) {
     for (const key of UNSUPPORTED) {
@@ -376,7 +410,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       }
     }
 
-    this.action = action;
+    this.action = asAction<TArgs, TReturn>(action);
     const rollingCountTimeout = options.rollingCountTimeout ?? 10_000;
     this.options = {
       ...options,
@@ -403,7 +437,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       this.emitter,
       options.rotateBucketController,
     );
-    this.name = options.name ?? action.name ?? "anonymous";
+    this.name = options.name ?? (typeof action === "function" ? action.name : "") ?? "anonymous";
     this.warmUpUntil =
       options.allowWarmUp === true
         ? (options.clock ?? systemClock).now() + (options.rollingCountTimeout ?? 10_000)
@@ -482,11 +516,16 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     return this.halfOpen;
   }
 
-  get status(): { stats: OpossumStats; window: OpossumBucket[] } {
+  /**
+   * opossum's `status` is itself an event emitter — callers do `status.on('snapshot', …)` —
+   * as well as carrying `stats` and the bucket `window`. So it has to be one persistent
+   * object with live getters, not a fresh literal per read.
+   */
+  get status(): OpossumStatus {
     // opossum marks the newest bucket with the breaker's state, which its tests read as
     // `status.window[0].isCircuitBreakerOpen`.
     this.statusWindow.current.isCircuitBreakerOpen = this.opened;
-    return { stats: this.statusWindow.stats(), window: this.statusWindow.window };
+    return this.statusWindow;
   }
 
   /**
@@ -508,7 +547,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         shutdown: this.shutdown_,
         lastTimerAt: this.lastTimerAt,
       },
-      status: this.statusWindow.stats(),
+      status: this.statusWindow.snapshot(),
     };
   }
 
