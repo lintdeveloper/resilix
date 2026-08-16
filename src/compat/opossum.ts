@@ -407,6 +407,8 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
    * without making a call.
    */
   private halfOpenPending = false;
+  /** True once the reset timer has already emitted `halfOpen`, so we do not emit twice. */
+  private halfOpenAnnounced = false;
   private enabled_: boolean;
   private forcedOpen = false;
   private forcedClosed = false;
@@ -551,6 +553,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         onStateChange: (event) => {
           if (event.to === "open") {
             this.halfOpenPending = false;
+            this.halfOpenAnnounced = false;
             // resilix's breaker is LAZY: it only moves to half-open when admit() is next
             // called. opossum's is timer-driven, and its tests observe the half-open effects
             // (a renewed abort signal) without making a call. Emulate the timer here.
@@ -561,7 +564,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
             // opossum issues a fresh signal when the circuit half-opens, so the next trial
             // call is not handed an already-aborted one.
             if (this.autoRenew) this.abortController = new AbortController();
-            this.emitter.emit("halfOpen");
+            // Emit ONCE. The reset timer already announced half-open the moment the window
+            // elapsed; resilix's lazy breaker then transitions again on the next admit(),
+            // and emitting there too would double-count. Their test asserts exactly 1.
+            if (!this.halfOpenAnnounced) this.emitter.emit("halfOpen");
+            this.halfOpenAnnounced = false;
+            this.halfOpenPending = false;
           }
         },
       },
@@ -643,6 +651,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       this.halfOpenTimer = undefined;
       if (this.shutdown_) return;
       this.halfOpenPending = true;
+      this.halfOpenAnnounced = true;
       if (this.autoRenew) this.abortController = new AbortController();
       this.emitter.emit("halfOpen", this.options.resetTimeout);
     }, afterMs);
