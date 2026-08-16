@@ -129,6 +129,44 @@ One settled call, read differently by each policy. This table is the design:
 That last row matters more than it looks. Our own shedding must never be recorded as evidence about
 the upstream — without it, an open breaker observes its own rejections and can never close.
 
+## Adaptive concurrency limiting
+
+The part nothing else in npm has, and the reason this library exists.
+
+```ts
+import { pipeline, breaker, limiter } from "resilix";
+
+const api = pipeline({
+  key: (req) => req.model,
+  policies: [
+    breaker({ slowCallMs: 3_000 }),
+    limiter(),              // infers the right concurrency from latency
+  ],
+});
+```
+
+A circuit breaker is binary: open or closed. A limiter is continuous — it works out how many
+concurrent calls your upstream can actually absorb, from latency alone, and sheds the excess.
+Latency rises *before* errors do, which is why this catches degradation a failure-rate breaker
+cannot see at all.
+
+| | |
+|---|---|
+| Algorithm | Vegas queue estimation by default (`gradient2`, `aimd` also available) |
+| Signal | p90 of recent latency, via an O(1) P² estimator |
+| Over the limit | queue to 2×, then shed **proportionally** to 3× — not a cliff |
+| `429` / timeout | short-circuits the control loop; no waiting for the next interval |
+| `4xx` | a latency sample, but no pressure — the upstream did real work |
+
+**If you stream, call `ctx.mark()`.** The limiter judges on time-to-first-token; feed it total
+duration and a healthy 45-second completion looks like saturation.
+
+Two behaviours worth knowing. Growth is tethered to observed concurrency, so a limit of 200 is
+never invented while ten calls are in flight — the tether caps growth only and never shrinks the
+limit during a lull. And because the control loop runs on call settlement rather than a timer
+(resilix has no timers), `staleAfterMs` exists to stop a limiter clamped during an incident from
+staying clamped forever once traffic goes quiet.
+
 ## When a circuit breaker is the wrong tool
 
 Worth saying plainly, because it is the best-known criticism of the pattern and it is correct.
@@ -211,8 +249,9 @@ Pre-release.
 
 - **v0.1** classifier · circuit breaker · dual-bound window · key registry · pipeline executor
 - **v0.2** `resilix/otel` · `resilix/compat/opossum` · bulkhead · observers
-- **v0.3** adaptive concurrency limiting — the headline release, and the one this library exists
-  for. Designed but not built: [`docs/specs/adaptive-limiter.md`](docs/specs/adaptive-limiter.md)
+- **v0.3** adaptive concurrency limiting · P² streaming quantiles · proportional shedding —
+  built to [`docs/specs/adaptive-limiter.md`](docs/specs/adaptive-limiter.md)
+- **v0.4** next: adaptive throttler, retry with budgets, rate limiter
 
 The full roadmap — adaptive concurrency limiting, adaptive throttling, execution
 budgets, hedging, criticality — is in [`docs/resilix-architecture.pdf`](docs/resilix-architecture.pdf),
