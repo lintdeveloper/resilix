@@ -39,6 +39,12 @@ export interface OpossumOptions {
   capacity?: number;
   name?: string;
   group?: string;
+  /** Warm-up period during which the breaker will not open. */
+  rollingCountBuckets_unused?: never;
+  /** Prime the breaker from a previous `toJSON()`. */
+  state?: OpossumState;
+  /** Do not open the circuit until this many ms have elapsed since construction. */
+  allowWarmUp?: boolean;
   /** Not supported — see the notes in the README. Throws if set. */
   cache?: boolean;
   /** Not supported. Throws if set. */
@@ -67,6 +73,19 @@ export type OpossumEvent =
   | "halfOpen"
   | "fallback"
   | "semaphoreLocked";
+
+/** The shape opossum's `toJSON()` produces and its `state` option accepts. */
+export interface OpossumState {
+  name?: string;
+  enabled?: boolean;
+  closed?: boolean;
+  open?: boolean;
+  halfOpen?: boolean;
+  warmUp?: boolean;
+  pendingClose?: boolean;
+  shutdown?: boolean;
+  lastTimerAt?: number | undefined;
+}
 
 export interface OpossumStats {
   fires: number;
@@ -155,6 +174,8 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   private fallbackFn: ((...args: unknown[]) => unknown) | undefined;
   private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
   private shutdown_ = false;
+  private readonly warmUpUntil: number;
+  private lastTimerAt: number | undefined;
   private enabled_ = true;
   private forcedOpen = false;
   private forcedClosed = false;
@@ -211,12 +232,24 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       volumeThreshold: options.volumeThreshold ?? 0,
     };
     this.name = options.name ?? action.name ?? "anonymous";
+    this.warmUpUntil =
+      options.allowWarmUp === true
+        ? (options.clock ?? systemClock).now() + (options.rollingCountTimeout ?? 10_000)
+        : 0;
     this.group = options.group ?? this.name;
     this.clock = options.clock ?? systemClock;
-    this.timeoutMs = options.timeout === false ? undefined : (options.timeout ?? 10_000);
+    // opossum disables the timeout with `false` OR `0`; both must be accepted, and
+    // `options.timeout` must still report the value the caller passed.
+    const rawTimeout = options.timeout ?? 10_000;
+    this.timeoutMs = rawTimeout === false || rawTimeout === 0 ? undefined : rawTimeout;
     this.errorFilter = options.errorFilter;
 
+    // resilix requires a positive slowCallMs; opossum has no such concept, so derive one that
+    // can never be zero. It is inert anyway unless slowCallRate is turned on.
     const slowCallMs = options.slowCallMs ?? this.timeoutMs ?? 10_000;
+
+    // Likewise `rollingCountTimeout: 0` is legal in opossum but not a valid window age.
+    const rollingCountTimeout = options.rollingCountTimeout ?? 10_000;
 
     this.breaker = new ResilixBreaker(
       {
@@ -228,9 +261,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         slowCallRate: options.slowCallRate ?? 1,
         // Also disabled by default, for the same reason.
         consecutiveBackstop: options.consecutiveBackstop ?? 0,
-        openForMs: options.resetTimeout ?? 30_000,
+        openForMs: Math.max(0, options.resetTimeout ?? 30_000),
         window: {
-          maxAgeMs: options.rollingCountTimeout ?? 10_000,
+          maxAgeMs: rollingCountTimeout > 0 ? rollingCountTimeout : Number.MAX_SAFE_INTEGER,
           minCalls: options.volumeThreshold ?? 0,
           calls: 1024,
         },
@@ -270,6 +303,38 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
 
   get status(): { stats: OpossumStats } {
     return { stats: this.stats };
+  }
+
+  /**
+   * Serialise the breaker, in opossum's shape.
+   *
+   * Note this is opossum's `toJSON`, not resilix's `snapshot()` — the field names and nesting
+   * are theirs, because their tests assert on them directly.
+   */
+  toJSON(): { state: OpossumState & { lastTimerAt: number | undefined }; status: OpossumStats } {
+    return {
+      state: {
+        name: this.name,
+        enabled: this.enabled_,
+        closed: this.closed,
+        open: this.opened,
+        halfOpen: this.halfOpen,
+        warmUp: this.warmingUp,
+        pendingClose: this.pendingClose,
+        shutdown: this.shutdown_,
+        lastTimerAt: this.lastTimerAt,
+      },
+      status: this.stats,
+    };
+  }
+
+  /** opossum's `fire` with an explicit `this` for the action. */
+  call(context: unknown, ...args: TArgs): Promise<TReturn> {
+    return this.fire_(context, args);
+  }
+
+  get warmingUp(): boolean {
+    return this.warmUpUntil > this.clock.now();
   }
 
   get isShutdown(): boolean {
@@ -363,7 +428,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     this.enabled_ = true;
   }
 
-  async fire(...args: TArgs): Promise<TReturn> {
+  fire(...args: TArgs): Promise<TReturn> {
+    return this.fire_(undefined, args);
+  }
+
+  private async fire_(context: unknown, args: TArgs): Promise<TReturn> {
     if (this.shutdown_) {
       const error = new OpossumError("The circuit has been shutdown.", "ESHUTDOWN");
       return Promise.reject(error) as Promise<TReturn>;
@@ -371,7 +440,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     this.stats.fires++;
     this.emitter.emit("fire", args);
 
-    if (!this.enabled_) return (await this.action(...args)) as TReturn;
+    if (!this.enabled_) return (await this.action.apply(context, args)) as TReturn;
 
     if (this.forcedOpen || (!this.forcedClosed && !this.breaker.admit().ok)) {
       this.stats.rejects++;
@@ -395,7 +464,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     try {
       let result: TReturn;
       if (this.timeoutMs === undefined) {
-        result = (await this.action(...args)) as TReturn;
+        result = (await this.action.apply(context, args)) as TReturn;
       } else {
         const ms = this.timeoutMs;
         result = await new Promise<TReturn>((resolve, reject) => {
@@ -406,7 +475,10 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
             reject(failure);
           }, ms);
           (timer as unknown as { unref?: () => void }).unref?.();
-          Promise.resolve(this.action(...args)).then(resolve as (v: unknown) => void, reject);
+          Promise.resolve(this.action.apply(context, args)).then(
+            resolve as (v: unknown) => void,
+            reject,
+          );
         });
       }
 
