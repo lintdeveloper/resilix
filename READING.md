@@ -16,7 +16,7 @@ ADRs live in `.notes/adrs/` (local only). Rule: read in order. Tier 1 is a prere
 | ☑ | AWS — *Exponential Backoff And Jitter* (the canonical version of this) | 25m | Which jitter strategy should v0.4's retry default to, and is `timeoutMs` in the right layer? | **Done** — full jitter, in `docs/specs/retry-and-throttling.md` §3.1. Chosen over decorrelated because it uses less work at slightly more time, and a library guarding someone else's service should not spend their capacity to shave its own tail. |
 | ☑ | AWS Builders' Library — *Using load shedding to avoid overload* | 25m | Is our `rejected` verdict handled the way AWS handles shed load? Does `retryAfterMs` carry the right signal? | **Done** — no fix needed. Refusals already go to `onRejection` and never reach the duration histogram, which is their "do not pollute latency metrics with shed requests" point. Now an explicit acceptance criterion so it cannot regress. |
 | ☑ | Google SRE Book — ch. 21 *Handling Overload* <br>`sre.google/sre-book/handling-overload` | 40m | The source for v0.4's throttler and budget, and v0.5's criticality. Check our `overload` verdict against their client-side throttling model. | **Done** — `max(0, (requests − K·accepts)/(requests + 1))`, K=2, two-minute window, 10% retry budget, three attempts. All in the v0.4 spec. |
-| ☐ | Google SRE Book — ch. 22 *Addressing Cascading Failures* | 40m | Can our breaker cause a cascade rather than prevent one? Specifically: does open-backoff make a thundering herd better or worse? | A test, or a documented failure mode in the README. |
+| ☑ | Google SRE Book — ch. 22 *Addressing Cascading Failures* | 40m | Can our breaker cause a cascade rather than prevent one? Specifically: does open-backoff make a thundering herd better or worse? | **Done** — three findings landed on existing code, recorded in the v0.5 spec §5: deadline propagation (already done in v0.4), retry multiplication across layers (docs must say retry at ONE layer only), and queue length — SRE says <=50% of the pool, our limiter allows 200%. That last is now an open question with a simulation attached. |
 | ☐ | **Release It! 2e** — Nygard, **Part I only** | ~3h | The canon. Stability antipatterns + patterns. Our library is an implementation of this one section. | A pass over `breaker.ts` and `README.md` using his vocabulary. |
 
 **Gate to v0.2:** all of Tier 1 except *Release It!* (start that in parallel — it's a book, not an article).
@@ -68,9 +68,9 @@ gates v0.4; ch. 22 is worth doing before v0.5.
 
 | ✓ | Read | Time | Why |
 |---|---|---|---|
-| ☐ | Dean & Barroso — *The Tail at Scale* (CACM 2013) | 45m | **The** hedging source: hedged requests, tied requests. Ten pages, no maths. |
-| ☐ | Netflix — *Keeping Netflix Reliable Using Prioritized Load Shedding* | 30m | Criticality in production. |
-| ☐ | AWS Builders' Library — *Fairness in multi-tenant systems* | 25m | The per-user fairness model for `UsageTracker`. |
+| ☑ | Dean & Barroso — *The Tail at Scale* (CACM 2013) | 45m | **The** hedging source: hedged requests, tied requests. Ten pages, no maths. |
+| ☑ | Netflix — *…Prioritized Load Shedding* (read the newer service-level post) | 30m | Criticality in production. |
+| ✗ | AWS Builders' Library — *Fairness in multi-tenant systems* | 25m | **COULD NOT READ** — the Builder Center pages render empty to the fetcher. §4 of the v0.5 spec rests on Uber's UsageTracker instead, and says so. Revisit. |
 
 ## Tier 4 — before v2.0 (inbound protection)
 
@@ -92,5 +92,5 @@ Read anything new they publish.
 
 - [ ] Tier 1 complete → v0.2 unblocked
 - [x] Tier 2 complete → v0.3 unblocked (spec at `docs/specs/adaptive-limiter.md`)
-- [ ] Tier 3 complete → v0.5 unblocked
+- [x] Tier 3 → v0.5 unblocked (spec at `docs/specs/hedging-and-priority.md`); AWS fairness unreadable, noted in-spec
 - [ ] Tier 4 complete → v2.0 unblocked
