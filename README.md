@@ -213,8 +213,8 @@ swallowing wrapper: a failing exporter can neither influence nor break an admiss
 
 ## Migrating from opossum (`resilix/compat/opossum`)
 
-> **Scope of the claim, measured:** the shim passes **335 of 360** of opossum's own test suite
-> (93%), run unmodified against `resilix/compat/opossum`. Reproduce it yourself with
+> **Scope of the claim, measured:** the shim passes **362 of 362** of opossum's own test suite,
+> run unmodified against `resilix/compat/opossum`. Reproduce it yourself with
 > `pnpm test:compat` — it fetches their suite, points their `require('../')` at our build, and
 > fails if this README's number is out of date.
 >

@@ -817,15 +817,27 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     return this.fire_(this.action, args);
   }
 
-  private async fire_(context: unknown, args: TArgs): Promise<TReturn> {
+  /**
+   * The admission gate, kept SYNCHRONOUS and outside the async body on purpose.
+   *
+   * An `async` function defers even an immediate `throw` by a microtask, and opossum's
+   * half-open test depends on the difference: it fires into an open circuit and then, in the
+   * very next `.then`, calls `t.end()`. If our rejection arrives one tick later than theirs,
+   * the assertion never runs and the test reports `.end() already called`. Returning a
+   * rejected promise directly from a non-async function matches their timing.
+   */
+  private fire_(context: unknown, args: TArgs): Promise<TReturn> {
     if (this.shutdown_) {
-      const error = new OpossumError("The circuit has been shutdown.", "ESHUTDOWN");
-      return Promise.reject(error) as Promise<TReturn>;
+      return Promise.reject(
+        new OpossumError("The circuit has been shutdown.", "ESHUTDOWN"),
+      ) as Promise<TReturn>;
     }
     this.statusWindow.increment("fires");
     this.emitter.emit("fire", args);
 
-    if (!this.enabled_) return (await this.action.apply(context, args)) as TReturn;
+    if (!this.enabled_) {
+      return Promise.resolve(this.action.apply(context, args)) as Promise<TReturn>;
+    }
 
     if (this.halfOpenPending && this.forcedOpen) {
       // The reset window elapsed while forced open: let this call be the trial.
@@ -846,6 +858,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       return this.runFallback(args, error);
     }
 
+    return this.invoke(context, args);
+  }
+
+  /** The admitted path: everything from here on genuinely needs to be async. */
+  private async invoke(context: unknown, args: TArgs): Promise<TReturn> {
     const started = this.clock.now();
     const elapsed = (): number => Math.max(0, this.clock.now() - started);
 
@@ -931,8 +948,10 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     this.breaker.settle(obs);
   }
 
-  private async runFallback(args: TArgs, error: unknown): Promise<TReturn> {
-    if (this.fallbackFn === undefined) throw error;
+  private runFallback(args: TArgs, error: unknown): Promise<TReturn> {
+    // Reject synchronously when there is no fallback: an async function would add a
+    // microtask, and opossum's tests observe the difference (see fire_).
+    if (this.fallbackFn === undefined) return Promise.reject(error) as Promise<TReturn>;
     this.statusWindow.increment("fallbacks");
     // Emit the RAW return value, before awaiting it. opossum's test registers a `fallback`
     // listener and awaits the promise itself, so a fallback that rejects must still reach
@@ -940,7 +959,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     // opossum appends the error as the LAST argument, after the original call arguments.
     const raw = this.fallbackFn(...args, error);
     this.emitter.emit("fallback", raw, error);
-    return (await raw) as TReturn;
+    return Promise.resolve(raw) as Promise<TReturn>;
   }
 }
 
