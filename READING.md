@@ -13,9 +13,9 @@ ADRs live in `.notes/adrs/` (local only). Rule: read in order. Tier 1 is a prere
 | ✓ | Read | Time | The question it answers about OUR code | Expected output |
 |---|---|---|---|---|
 | ☑ | Marc Brooker — *Will circuit breakers solve my problems?* <br>`brooker.co.za/blog` | 15m | Should resilix lead with a breaker at all? He argues breakers are often the wrong tool and adaptive shedding is better. He is largely agreeing with our thesis — and will find its holes. | **Done** — ADR-015, plus a "when a circuit breaker is the wrong tool" section in the README. His objection is about partial failure in sharded backends and per-host keying does NOT answer it. |
-| ☐ | AWS Builders' Library — *Timeouts, retries and backoff with jitter* | 25m | Which jitter strategy should v0.4's retry default to, and is `timeoutMs` in the right layer? | The default jitter choice for v0.4, written down before we implement it. |
-| ☐ | AWS Builders' Library — *Using load shedding to avoid overload* | 25m | Is our `rejected` verdict handled the way AWS handles shed load? Does `retryAfterMs` carry the right signal? | Confirm or fix `RejectionReason` / `retryAfterMs` semantics in `pipeline.ts`. |
-| ☐ | Google SRE Book — ch. 21 *Handling Overload* <br>`sre.google/sre-book/handling-overload` | 40m | The source for v0.4's throttler and budget, and v0.5's criticality. Check our `overload` verdict against their client-side throttling model. | The exact formula + K constant recorded for v0.4. |
+| ☑ | AWS — *Exponential Backoff And Jitter* (the canonical version of this) | 25m | Which jitter strategy should v0.4's retry default to, and is `timeoutMs` in the right layer? | **Done** — full jitter, in `docs/specs/retry-and-throttling.md` §3.1. Chosen over decorrelated because it uses less work at slightly more time, and a library guarding someone else's service should not spend their capacity to shave its own tail. |
+| ☑ | AWS Builders' Library — *Using load shedding to avoid overload* | 25m | Is our `rejected` verdict handled the way AWS handles shed load? Does `retryAfterMs` carry the right signal? | **Done** — no fix needed. Refusals already go to `onRejection` and never reach the duration histogram, which is their "do not pollute latency metrics with shed requests" point. Now an explicit acceptance criterion so it cannot regress. |
+| ☑ | Google SRE Book — ch. 21 *Handling Overload* <br>`sre.google/sre-book/handling-overload` | 40m | The source for v0.4's throttler and budget, and v0.5's criticality. Check our `overload` verdict against their client-side throttling model. | **Done** — `max(0, (requests − K·accepts)/(requests + 1))`, K=2, two-minute window, 10% retry budget, three attempts. All in the v0.4 spec. |
 | ☐ | Google SRE Book — ch. 22 *Addressing Cascading Failures* | 40m | Can our breaker cause a cascade rather than prevent one? Specifically: does open-backoff make a thundering herd better or worse? | A test, or a documented failure mode in the README. |
 | ☐ | **Release It! 2e** — Nygard, **Part I only** | ~3h | The canon. Stability antipatterns + patterns. Our library is an implementation of this one section. | A pass over `breaker.ts` and `README.md` using his vocabulary. |
 
@@ -51,6 +51,16 @@ TCP Vegas read too. The original is rate-based (`Diff = ExpectedRate − ActualR
 the baseline decision: BaseRTT is a running minimum and can only go down, so a permanently
 worsened upstream would clamp the limiter forever — which is why the spec takes Uber's covariance
 reset over a plain minimum.
+
+---
+
+**Gate to v0.4: MET.** The three items above were the ones that decide v0.4's defaults; the spec
+is `docs/specs/retry-and-throttling.md`. Marc Brooker's *Fixing retries with token buckets and
+circuit breakers* was read alongside them — his simulation finds neither a token bucket nor a
+retry circuit breaker is ideal, which is quoted in the spec rather than smoothed over.
+
+Still open from Tier 1: **SRE ch. 22** (cascading failures) and **Release It! Part I**. Neither
+gates v0.4; ch. 22 is worth doing before v0.5.
 
 ---
 
