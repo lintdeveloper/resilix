@@ -458,6 +458,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       );
     }
 
+    if (action === undefined) {
+      // opossum requires an action. A non-function value is fine and is simply resolved,
+      // but nothing at all is a programming error.
+      throw new TypeError("No action provided to the circuit breaker");
+    }
+
     this.action = asAction<TArgs, TReturn>(action);
     const rollingCountTimeout = options.rollingCountTimeout ?? 10_000;
     this.options = {
