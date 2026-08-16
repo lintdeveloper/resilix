@@ -1,5 +1,103 @@
 # resilix
 
+## 0.5.0
+
+First published release. The version is 0.5.0 rather than 0.1.0 because the roadmap had already
+reached v0.5 before anything was published — the adaptive limiter, retry budgets, hedging and
+tenant fairness are all in this release, and a `0.1.0` on the registry would have understated it.
+Nothing was ever published under 0.1.x–0.4.x.
+
+
+### Minor Changes
+
+- b2181bb: **v0.5 — hedging, criticality, and tenant fairness.**
+
+  Built to `docs/specs/hedging-and-priority.md`.
+
+  - **`hedge`** — races a second attempt against a slow first one and cancels the loser. The delay
+    defaults to the **measured p95** for that key rather than a constant, because Dean & Barroso's
+    ~2% overhead follows from hedging at a high percentile; a stale constant loses the property
+    that made hedging cheap. `idempotent: true` is **required**, not documented — a hedge sends the
+    same request twice, and on a payment that is a double charge.
+  - **Criticality** — Netflix's four buckets (`critical` / `degraded` / `bestEffort` / `bulk`),
+    shed progressively as pressure rises. Their incident is the case for it: a 12× prefetch spike,
+    over half of all requests throttled, and user-initiated availability still above 99.4%.
+  - **Tenant fairness** — relative rather than quota-based. Under pressure the tenant furthest
+    above `admitted / activeTenants` is shed first, and heaviness decays so nobody is punished
+    forever.
+
+  `Policy.admit()` now takes an optional `AdmissionRequest` carrying priority and tenant. Breaking
+  for anyone who implemented a custom policy; additive in behaviour, since a policy that ignores
+  the argument behaves exactly as before.
+
+- 7e7d4fd: **v0.4 — retry with budgets, adaptive throttling, and rate limiting.**
+
+  Built to `docs/specs/retry-and-throttling.md`. All eight acceptance criteria pass, including
+  reproducing Google SRE's amplification numbers: unbudgeted retries multiply load ~3x, a 10%
+  budget holds it near 1.1x.
+
+  - **`retry`** — full jitter by default, `random(0, min(cap, base·2^n))`. AWS measured no-jitter
+    as the "clear loser" and equal jitter as "much longer"; full costs the upstream less work than
+    decorrelated at slightly more elapsed time, and a library guarding someone else's service
+    should not spend their capacity to shave its own tail. All four strategies ship.
+  - **`budget`** — a _shared_ object, because a per-policy cap cannot bound system-wide
+    amplification. Pass one instance to every pipeline in the process.
+  - **`throttler`** — Google SRE client-side throttling, `max(0, (requests − K·accepts) /
+(requests + 1))` with K=2 over a two-minute window. Unlike a breaker it sheds a _fraction_, so
+    traffic keeps flowing and recovery is observed continuously.
+  - **`rateLimit`** — a token bucket that refills continuously, so straddling an interval boundary
+    cannot yield 2x the limit.
+
+  The verdict model does real work here: `answered` is never retried (the upstream worked, the
+  caller was wrong) and `rejected` is never retried (we refused it ourselves). A
+  boolean-predicate library retries both by default.
+
+  Two decisions worth knowing:
+
+  - **resilix now injects randomness**, which it deliberately never had. Full jitter and
+    probabilistic throttling exist to _decorrelate_ clients, so a deterministic approximation
+    produces exactly the thundering herd they prevent. `Random` is injected like `Clock`: seeded in
+    tests, lazy at runtime so Workers still works.
+  - **`timeoutMs` now bounds the whole retry sequence, not each attempt.** Most libraries bound
+    each attempt, so a caller asking for 50ms can wait `maxAttempts × (50ms + backoff)`. A deadline
+    the caller cannot see is not a deadline.
+
+### Patch Changes
+
+- 0cea0ed: ADR-007 is now enforced by the build rather than by memory, and enforcing it found a fifth
+  violation.
+
+  `src/scenarios/conformance.test.ts` runs every policy through the same checks. The key insight is
+  that two of the six checklist items collapse into one much stronger invariant:
+
+  > `admit()` followed by `settle(rejected)` must be indistinguishable from never having called.
+
+  Compared across `snapshot()` and `metrics()`, that single assertion catches every historical
+  instance. A completeness test enumerates the package's exports and probes for the `Policy`
+  shape, so a new policy that is not registered for conformance fails the build — forgetting is no
+  longer an available failure mode. The harness is itself verified against two deliberately-broken
+  policies, because a conformance check that passes vacuously is worse than none.
+
+  **Fixed as a result:** `rateLimit` spent a token in `admit()` and never refunded it when an inner
+  policy refused the call, silently lowering the effective rate below the configured one.
+
+- f13a5df: Review fixes, two of them correctness bugs in v0.5.
+
+  - **Hedging took the first settled result, including a rejection.** A hedge that failed fast beat
+    an original that would have succeeded, so hedging made reliability _worse_ — two copies double
+    the exposure to a transient failure and the quicker error wins. It now takes the first
+    **success**, and only rejects when every copy has failed.
+  - **Tenant fairness was charged at `admit()`.** That billed a tenant for calls an inner policy
+    refused, and since usage is what gets you shed, it was a feedback loop inside the fairness
+    mechanism itself. `Observation` now carries `tenant` so usage is charged at `settle()`.
+  - The limiter's overhead assertion is gated behind `pnpm test:perf`. Measured under v8 coverage
+    it reported ~2,100 ns against a 1,000 ns budget; uninstrumented the same loop is **~57 ns**. A
+    wall-clock assertion under instrumentation measures the instrumentation, and it was failing CI
+    for a non-problem.
+  - `snapshot` / `hydrate` / `metrics` / `reset` are now tested for every v0.4 and v0.5 policy —
+    they had shipped untested, which is the serverless surface and where ADR-005 already found a
+    bug.
+
 ## 0.1.0
 
 ### Minor Changes
