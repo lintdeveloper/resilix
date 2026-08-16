@@ -327,8 +327,11 @@ class OpossumStatus {
       latencyCount += b.latencyTimes.length;
       latencySum += b.latencyTimes.reduce((a, x) => a + x, 0);
     }
-    const sorted = this.buckets.flatMap((b) => b.latencyTimes).sort((a, b) => a - b);
+    // opossum signals "not tracked" with -1, distinguishing it from a genuine zero.
+    const off = !this.rollingPercentilesEnabled;
+    const sorted = off ? [] : this.buckets.flatMap((b) => b.latencyTimes).sort((a, b) => a - b);
     const at = (q: number): number => {
+      if (off) return -1;
       if (sorted.length === 0) return 0;
       const idx = Math.min(sorted.length - 1, Math.floor(q * sorted.length));
       return sorted[idx] ?? 0;
@@ -349,7 +352,7 @@ class OpossumStatus {
       semaphoreRejections: total.semaphoreRejections ?? 0,
       cacheHits: total.cacheHits ?? 0,
       cacheMisses: total.cacheMisses ?? 0,
-      latencyMean: latencyCount === 0 ? 0 : latencySum / latencyCount,
+      latencyMean: off ? -1 : latencyCount === 0 ? 0 : latencySum / latencyCount,
     };
   }
 
@@ -830,7 +833,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
           timer = setTimeout(() => {
             this.statusWindow.increment("timeouts");
             this.abortController?.abort();
-            this.emitter.emit("timeout", failure);
+            // opossum's timeout event carries the latency and the call arguments, and its
+            // tests assert on both.
+            this.emitter.emit("timeout", failure, elapsed(), args);
             reject(failure);
           }, ms);
           // Deliberately NOT unref'd, unlike resilix's own pipeline.
@@ -849,7 +854,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
 
       this.statusWindow.increment("successes", elapsed());
       this.settle("success", elapsed());
-      this.emitter.emit("success", result, elapsed());
+      this.emitter.emit("success", result, elapsed(), args);
       return result;
     } catch (error) {
       const verdict = this.verdictFor(error, args);
