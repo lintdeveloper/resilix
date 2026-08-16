@@ -31,8 +31,13 @@ export interface OpossumOptions {
   rollingCountTimeout?: number;
   /** Minimum calls in the window before the error percentage is considered. Default 0. */
   volumeThreshold?: number;
-  /** Return true for errors that should NOT count as failures. */
-  errorFilter?: (error: unknown) => boolean;
+  /** Start disabled. */
+  enabled?: boolean;
+  /**
+   * Return true for errors that should NOT count as failures. Receives the error followed by
+   * the arguments the call was fired with, which opossum's tests rely on.
+   */
+  errorFilter?: (error: unknown, ...args: unknown[]) => boolean | void;
   /** Maximum concurrent calls. Maps to a resilix bulkhead. */
   capacity?: number;
   name?: string;
@@ -359,7 +364,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   private readonly emitter = new Emitter();
   private readonly clock: Clock;
   private readonly timeoutMs: number | undefined;
-  private readonly errorFilter: ((error: unknown) => boolean) | undefined;
+  private readonly errorFilter:
+    | ((error: unknown, ...args: unknown[]) => boolean | void)
+    | undefined;
 
   private fallbackFn: ((...args: unknown[]) => unknown) | undefined;
   private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
@@ -377,7 +384,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
    * without making a call.
    */
   private halfOpenPending = false;
-  private enabled_ = true;
+  private enabled_: boolean;
   private forcedOpen = false;
   private forcedClosed = false;
 
@@ -457,6 +464,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     const rawTimeout = options.timeout ?? 10_000;
     this.timeoutMs = rawTimeout === false || rawTimeout === 0 ? undefined : rawTimeout;
     this.errorFilter = options.errorFilter;
+    this.enabled_ = options.enabled ?? true;
 
     // resilix requires a positive slowCallMs; opossum has no such concept, so derive one that
     // can never be zero. It is inert anyway unless slowCallRate is turned on.
@@ -706,7 +714,10 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   fire(...args: TArgs): Promise<TReturn> {
-    return this.fire_(undefined, args);
+    // opossum's default `this` for the action is the ACTION ITSELF, not undefined — their
+    // context-test hangs a property off the function (`getLunch.lunch = 'tacos'`) and
+    // expects a plain fire() to read it.
+    return this.fire_(this.action, args);
   }
 
   private async fire_(context: unknown, args: TArgs): Promise<TReturn> {
@@ -771,7 +782,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       this.emitter.emit("success", result, elapsed());
       return result;
     } catch (error) {
-      const verdict = this.verdictFor(error);
+      const verdict = this.verdictFor(error, args);
       this.settle(verdict, elapsed());
 
       if (verdict === "answered") {
@@ -791,8 +802,8 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   /** Map a thrown value to a resilix verdict, honouring opossum's `errorFilter`. */
-  private verdictFor(error: unknown): Verdict {
-    if (this.errorFilter?.(error) === true) return "answered";
+  private verdictFor(error: unknown, args: TArgs): Verdict {
+    if (this.errorFilter?.(error, ...args) === true) return "answered";
     const verdict = classifyHttp(error);
     // opossum has no notion of "the upstream answered": anything not filtered out is a
     // failure. Preserve that, or a 4xx-heavy service would behave differently after the swap.
