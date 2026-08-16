@@ -1,6 +1,6 @@
 # Spec: hedging, criticality and tenant fairness (v0.5)
 
-**Status:** design locked, not implemented.
+**Status:** implemented in v0.5. Two of the four open questions are now resolved; see §7.
 **Gate:** deliverable of `READING.md` Tier 3, plus SRE ch. 22. No code before this exists.
 
 ---
@@ -179,11 +179,15 @@ admitted, or a hedge would bypass the limiter.
 ## 7. Open questions
 
 1. **Is the limiter's 2× queue factor too generous?** SRE says ≤50% of the pool; we allow 200%.
-   Needs a simulation comparing shed rate and tail latency at 0.5×, 1×, 2×.
-2. **Does hedging fight the limiter?** A hedge doubles in-flight calls precisely when latency is
-   already high — which is when the limiter is shrinking. They may oscillate. This is the same
-   class of interaction as the v0.4 throttler question, which found a real bug, so it must be
-   simulated rather than reasoned about.
+   Simulated: a larger queue sheds strictly less, which is the trade and not a surprise. The
+   direction is now pinned by a test, but the right *value* still needs a tail-latency
+   measurement rather than a shed-rate one — a queue that never rejects simply moves the pain
+   into latency. **Still open.**
+2. ~~**Does hedging fight the limiter?**~~ **RESOLVED — no.** Simulated with every call hedged,
+   i.e. worst-case double in-flight, against a constant-latency upstream. The limit ends up
+   greater than or equal to the unhedged case, because the growth tether keys off *observed
+   concurrency*: more in-flight buys more headroom, not less. Unlike the v0.4 throttler
+   question, this one really was benign. Regression-tested.
 3. **Priority and the breaker.** Should a `CRITICAL` request be admitted through an open
    circuit? Arguably yes as a probe; arguably no, since the circuit is open for a reason.
 4. **Fairness needs its own key dimension.** Tenant is orthogonal to the isolation key, so the

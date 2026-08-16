@@ -42,6 +42,49 @@ export interface Observation {
   at: number;
 }
 
+/**
+ * Request criticality, in Netflix's four buckets (themselves inspired by Linux `tc-prio`).
+ *
+ * Four named levels rather than Uber's five classes x 100 granular levels: 768 priorities is a
+ * scheduling system, and a scheduling system needs a queue it owns. resilix sheds at admission.
+ *
+ * Netflix's definitions, verbatim:
+ *   critical    "Affect core functionality — These will never be shed if we are not in
+ *                complete failure."
+ *   degraded    "Affect user experience — These will be progressively shed as the load
+ *                increases."
+ *   bestEffort  "Do not affect the user — These will be responded to in a best effort fashion
+ *                and may be shed progressively in normal operation."
+ *   bulk        "Background work, expect these to be routinely shed."
+ */
+export type Priority = "critical" | "degraded" | "bestEffort" | "bulk";
+
+/** Ordered least- to most-sheddable. Index doubles as the shed order. */
+export const PRIORITIES: readonly Priority[] = ["critical", "degraded", "bestEffort", "bulk"];
+
+/**
+ * How much system pressure must exist before work at this priority is shed.
+ *
+ * Netflix's CPU variant sheds non-critical above 60% utilisation and critical only above 80%.
+ * resilix has no CPU reading for someone else's machine, so "pressure" is the local equivalent:
+ * how close a policy is to refusing everything. `critical` sits at 1 so it is shed only when a
+ * policy would have refused the call regardless of priority.
+ */
+export const SHED_ABOVE: Readonly<Record<Priority, number>> = {
+  bulk: 0.25,
+  bestEffort: 0.5,
+  degraded: 0.75,
+  critical: 1,
+};
+
+/** What a policy is told about the call it is being asked to admit. */
+export interface AdmissionRequest {
+  /** Defaults to `critical` — unlabelled work is assumed to matter. */
+  readonly priority?: Priority;
+  /** Opaque tenant identifier, for fairness. */
+  readonly tenant?: string;
+}
+
 /** Why an execution was refused. */
 export type RejectionReason =
   | "circuit-open"
@@ -50,7 +93,9 @@ export type RejectionReason =
   | "limiter-full"
   | "throttled"
   | "rate-limited"
-  | "budget-exceeded";
+  | "budget-exceeded"
+  | "shed-by-priority"
+  | "unfair-share";
 
 /** A policy's answer to "may this execution proceed right now?". */
 export type Admission =
@@ -73,8 +118,14 @@ export const refuse = (reason: RejectionReason, retryAfterMs?: number): Admissio
  */
 export interface Policy<S = unknown> {
   readonly name: string;
-  /** Gate. Must be side-effect-free apart from the policy's own bookkeeping. */
-  admit(): Admission;
+  /**
+   * Gate. Must be side-effect-free apart from the policy's own bookkeeping.
+   *
+   * The argument is optional and ignorable: policies that do not shed by priority or tenant
+   * simply do not read it. It exists because priority-aware shedding is meaningless if the
+   * shedding policies cannot see the priority.
+   */
+  admit(request?: AdmissionRequest): Admission;
   /** Feedback for an execution this policy admitted. */
   settle(obs: Observation): void;
   /** Serialisable state, for serverless hydration and for tests. */

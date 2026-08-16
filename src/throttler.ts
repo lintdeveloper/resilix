@@ -1,8 +1,17 @@
 import { systemClock } from "./clock.ts";
+import { priorityOf, shouldShed } from "./priority.ts";
 import { systemRandom } from "./random.ts";
 import type { Random } from "./random.ts";
 import { ADMIT, refuse } from "./types.ts";
-import type { Admission, Clock, Observation, Policy, PolicyEnv, PolicyFactory } from "./types.ts";
+import type {
+  Admission,
+  AdmissionRequest,
+  Clock,
+  Observation,
+  Policy,
+  PolicyEnv,
+  PolicyFactory,
+} from "./types.ts";
 
 export interface ThrottlerOptions {
   /**
@@ -105,11 +114,17 @@ export class AdaptiveThrottler implements Policy<ThrottlerSnapshot> {
     return Math.max(0, Math.min(this.maxRejectionRate, raw));
   }
 
-  admit(): Admission {
+  admit(request?: AdmissionRequest): Admission {
     const rate = this.rejectionRate;
+    if (rate <= 0) return ADMIT;
+
+    // Spend the shedding on the least important work first. The rejection rate doubles as the
+    // pressure reading, so a throttler at 0.3 sheds bulk work and nothing else.
+    if (shouldShed(rate, priorityOf(request))) return refuse("shed-by-priority");
+
     // Probabilistic on purpose. Deterministic shedding would make every client in a fleet
     // refuse the same requests in the same order, which is the correlation this exists to break.
-    if (rate > 0 && this.random.next() < rate) return refuse("throttled");
+    if (this.random.next() < rate) return refuse("throttled");
     return ADMIT;
   }
 

@@ -58,3 +58,7 @@ export type { RateLimitOptions, RateLimitSnapshot } from "./rate-limit.ts";
 export { AdaptiveThrottler, throttler } from "./throttler.ts";
 export type { ThrottlerOptions, ThrottlerSnapshot } from "./throttler.ts";
 export type { RetryOptions } from "./pipeline.ts";
+export { FairShare, priorityOf, shouldShed } from "./priority.ts";
+export { PRIORITIES, SHED_ABOVE } from "./types.ts";
+export type { AdmissionRequest, Priority } from "./types.ts";
+export type { HedgeOptions } from "./pipeline.ts";

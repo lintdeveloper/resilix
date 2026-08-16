@@ -5,14 +5,17 @@ import { classifyHttp, retryAfterFrom } from "./classify.ts";
 import { systemClock } from "./clock.ts";
 import { safeObserver } from "./observer.ts";
 import type { Observer } from "./observer.ts";
+import { P2Quantile } from "./quantile.ts";
 import { systemRandom } from "./random.ts";
 import type { Random } from "./random.ts";
 import { KeyRegistry } from "./registry.ts";
 import type {
+  AdmissionRequest,
   Clock,
   Observation,
   Policy,
   PolicyFactory,
+  Priority,
   RejectionReason,
   Verdict,
 } from "./types.ts";
@@ -58,6 +61,34 @@ export interface RetryOptions extends BackoffOptions {
    * A provider telling you when to come back is better information than any backoff curve.
    */
   respectRetryAfter?: boolean;
+}
+
+/**
+ * Hedging: issue a second attempt when the first is slow, take whichever wins.
+ *
+ * Dean & Barroso got p99 from 1,800 ms to 74 ms while sending about 2% more requests — but that
+ * ratio comes from hedging at a high percentile, and it assumes the loser is actually cancelled.
+ * Both are handled below.
+ */
+export interface HedgeOptions {
+  /**
+   * REQUIRED, and deliberately not a documentation warning.
+   *
+   * A hedge sends the same request twice. On a non-idempotent operation that is a duplicate
+   * payment or a double-charged customer. Polly and failsafe-go document the hazard; making it
+   * a required acknowledgement means it cannot be reached by accident.
+   */
+  idempotent: true;
+  /**
+   * Fixed delay before hedging. Omit to use the MEASURED p95 for the key, which is the point:
+   * a constant goes stale the moment the upstream's latency profile moves, and with it the 2%
+   * overhead that made hedging cheap.
+   */
+  delayMs?: number;
+  /** Extra attempts beyond the first. Default 1 (failsafe-go's default). */
+  maxHedges?: number;
+  /** Shared with retry — a hedge is an amplifier too, and two unbounded ones do not compose. */
+  budget?: RetryBudget;
 }
 
 /** Thrown when the pipeline's own deadline elapses. Classified as `timeout`. */
@@ -111,6 +142,12 @@ export interface PipelineOptions<I> {
   random?: Random;
   /** Re-attempt failed calls. Absent means no retrying. */
   retry?: RetryOptions;
+  /** Race a second attempt against a slow first one. Absent means no hedging. */
+  hedge?: HedgeOptions;
+  /** Criticality of this call, so shedding policies can spare important work. */
+  priority?: (input: I) => Priority;
+  /** Tenant identity, so one caller cannot consume everyone else's capacity. */
+  tenant?: (input: I) => string;
   registry?: { maxKeys?: number; ttlMs?: number };
   /**
    * Passive observers — metrics, logs, traces. Dispatched through a swallowing wrapper, so
@@ -138,6 +175,11 @@ export class Pipeline<I = unknown> {
   private readonly clock: Clock;
   private readonly random: Random;
   private readonly retryOptions: RetryOptions | undefined;
+  private readonly hedgeOptions: HedgeOptions | undefined;
+  private readonly priorityOf: ((input: I) => Priority) | undefined;
+  private readonly tenantOf: ((input: I) => string) | undefined;
+  /** Streaming p95 per key, for the hedge delay when none is configured. */
+  private readonly latency: KeyRegistry<P2Quantile>;
   /**
    * The most recent `Retry-After` an upstream sent, in ms. Set when an `overload` outcome
    * settles and consumed by the next retry, which prefers it over the computed backoff — a
@@ -148,8 +190,15 @@ export class Pipeline<I = unknown> {
   private readonly registry: KeyRegistry<Policy[]>;
 
   constructor(options: PipelineOptions<I>) {
-    if (options.policies.length === 0) {
-      throw new RangeError("pipeline requires at least one policy");
+    // A pipeline with no policies is legitimate once retry/hedge/timeout exist on the
+    // pipeline itself rather than in the policy list — those are wrappers, not gates.
+    if (
+      options.policies.length === 0 &&
+      options.retry === undefined &&
+      options.hedge === undefined &&
+      options.timeoutMs === undefined
+    ) {
+      throw new RangeError("pipeline requires at least one policy, or a retry / hedge / timeoutMs");
     }
     this.keyOf = options.key ?? (() => "default");
     this.classify = options.classify ?? classifyHttp;
@@ -157,11 +206,26 @@ export class Pipeline<I = unknown> {
     this.clock = options.clock ?? systemClock;
     this.random = options.random ?? systemRandom;
     this.retryOptions = options.retry;
+    this.hedgeOptions = options.hedge;
+    this.priorityOf = options.priority;
+    this.tenantOf = options.tenant;
+    if (options.hedge && options.hedge.idempotent !== true) {
+      throw new TypeError(
+        "hedge requires `idempotent: true`. Hedging sends the same request more than once, " +
+          "which duplicates any non-idempotent operation.",
+      );
+    }
     this.observer = safeObserver(options.observers ?? []);
 
     const clock = this.clock;
     const observer = this.observer;
     const random = this.random;
+    this.latency = new KeyRegistry<P2Quantile>({
+      factory: () => new P2Quantile(0.95),
+      maxKeys: options.registry?.maxKeys,
+      ttlMs: options.registry?.ttlMs,
+      clock,
+    });
     this.registry = new KeyRegistry<Policy[]>({
       factory: (key) => options.policies.map((make) => make({ key, clock, observer, random })),
       maxKeys: options.registry?.maxKeys,
@@ -190,9 +254,13 @@ export class Pipeline<I = unknown> {
     const key = this.keyOf(input);
     const policies = this.registry.get(key);
     const admitted: Policy[] = [];
+    const request: AdmissionRequest = {
+      ...(this.priorityOf ? { priority: this.priorityOf(input) } : {}),
+      ...(this.tenantOf ? { tenant: this.tenantOf(input) } : {}),
+    };
 
     for (const policy of policies) {
-      const decision = policy.admit();
+      const decision = policy.admit(request);
       if (decision.ok) {
         admitted.push(policy);
         continue;
@@ -222,6 +290,7 @@ export class Pipeline<I = unknown> {
       const obs: Observation = { verdict, latencyMs, at: this.clock.now() };
       // Innermost first, so an inner policy releases its slot before an outer one reads state.
       for (let i = admitted.length - 1; i >= 0; i--) admitted[i]?.settle(obs);
+      if (verdict !== "rejected") this.latency.get(key).push(latencyMs);
       this.observer.onExecution({
         key,
         verdict,
@@ -256,8 +325,74 @@ export class Pipeline<I = unknown> {
    * without promise plumbing, and drivable by hand via `gate()`.
    */
   async execute<R>(input: I, fn: (ctx: ExecutionContext) => R | Promise<R>): Promise<R> {
-    if (this.retryOptions === undefined) return this.attempt(input, fn);
-    return this.executeWithRetry(input, fn, this.retryOptions);
+    const once = this.hedgeOptions
+      ? (i: I, f: (ctx: ExecutionContext) => R | Promise<R>) =>
+          this.executeHedged(i, f, this.hedgeOptions as HedgeOptions)
+      : (i: I, f: (ctx: ExecutionContext) => R | Promise<R>) => this.attempt(i, f);
+
+    if (this.retryOptions === undefined) return once(input, fn);
+    return this.executeWithRetry(input, fn, this.retryOptions, once);
+  }
+
+  /**
+   * Race a second attempt against a slow first one, and cancel whichever loses.
+   *
+   * Cancellation is not optional: without it the ~2% overhead Dean & Barroso measured becomes
+   * 100%, because every hedged call runs twice to completion. SRE ch. 22 says the same —
+   * "send messages to the other servers to cancel the now-superfluous requests".
+   *
+   * The hedge is INSIDE retry: it is one logical attempt with two copies in flight, and retry
+   * should count it once. Each copy is admitted independently, so a hedge cannot slip past the
+   * limiter.
+   */
+  private async executeHedged<R>(
+    input: I,
+    fn: (ctx: ExecutionContext) => R | Promise<R>,
+    options: HedgeOptions,
+  ): Promise<R> {
+    const maxHedges = Math.max(0, options.maxHedges ?? 1);
+    const key = this.keyOf(input);
+    const delay = options.delayMs ?? this.latency.get(key).get() ?? undefined;
+
+    // With no measured p95 yet and no configured delay, there is nothing sensible to hedge on.
+    if (delay === undefined || maxHedges === 0) return this.attempt(input, fn);
+
+    const controllers: AbortController[] = [];
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const cancelLosers = () => {
+      for (const t of timers) clearTimeout(t);
+      for (const c of controllers) c.abort();
+    };
+
+    const launch = (): Promise<R> => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      return this.attempt(input, fn, controller);
+    };
+
+    try {
+      const racers: Array<Promise<R>> = [launch()];
+
+      for (let n = 0; n < maxHedges; n++) {
+        const hedged = new Promise<R>((resolve, reject) => {
+          const timer = setTimeout(
+            () => {
+              // A hedge is an amplifier exactly like a retry, so it spends the same budget.
+              if (options.budget && !options.budget.tryConsume()) return;
+              launch().then(resolve, reject);
+            },
+            delay * (n + 1),
+          );
+          (timer as unknown as { unref?: () => void }).unref?.();
+          timers.push(timer);
+        });
+        racers.push(hedged);
+      }
+
+      return await Promise.race(racers);
+    } finally {
+      cancelLosers();
+    }
   }
 
   /**
@@ -270,6 +405,7 @@ export class Pipeline<I = unknown> {
     input: I,
     fn: (ctx: ExecutionContext) => R | Promise<R>,
     options: RetryOptions,
+    once: (i: I, f: (ctx: ExecutionContext) => R | Promise<R>) => Promise<R>,
   ): Promise<R> {
     const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
     const backoff = new Backoff(options, this.random);
@@ -309,7 +445,7 @@ export class Pipeline<I = unknown> {
       }
 
       try {
-        return await this.attempt(input, fn);
+        return await once(input, fn);
       } catch (error) {
         lastError = error;
         if (!this.isRetryable(error)) throw error;
@@ -336,7 +472,11 @@ export class Pipeline<I = unknown> {
     });
   }
 
-  private async attempt<R>(input: I, fn: (ctx: ExecutionContext) => R | Promise<R>): Promise<R> {
+  private async attempt<R>(
+    input: I,
+    fn: (ctx: ExecutionContext) => R | Promise<R>,
+    external?: AbortController,
+  ): Promise<R> {
     const gate = this.gate(input);
     if (!gate.ok)
       throw new RejectedError(gate.key, gate.reason ?? "circuit-open", gate.retryAfterMs);
@@ -357,7 +497,7 @@ export class Pipeline<I = unknown> {
     try {
       const ms = this.timeoutMs;
       if (ms === undefined) {
-        const result = await fn({ key: gate.key, signal: undefined, mark });
+        const result = await fn({ key: gate.key, signal: external?.signal, mark });
         gate.settle(result, elapsed());
         return result;
       }
@@ -365,7 +505,7 @@ export class Pipeline<I = unknown> {
       // AbortController is constructed HERE, never at module scope. Cloudflare Workers
       // rejects timers and async I/O in global scope, which is what makes importing
       // cockatiel's retry crash `wrangler dev` (their #105, declined upstream).
-      controller = new AbortController();
+      controller = external ?? new AbortController();
       const signal = controller.signal;
 
       const result = await new Promise<R>((resolve, reject) => {

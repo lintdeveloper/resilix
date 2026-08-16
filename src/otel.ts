@@ -81,7 +81,7 @@ export interface OtelObserver extends Observer {
    * Pull-based on purpose. The alternative — pushing a gauge on every state change —
    * puts exporter work on the control path, which ADR-010 forbids.
    */
-  observeGauges(pipeline: Pipeline<never> | Pipeline<unknown>): void;
+  observeGauges(pipeline: Pick<Pipeline<never>, "metrics">): void;
 }
 
 const NOOP_COUNTER: CounterLike = { add: () => {} };

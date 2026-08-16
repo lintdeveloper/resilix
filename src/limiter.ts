@@ -1,8 +1,10 @@
 import { systemClock } from "./clock.ts";
+import { FairShare, priorityOf, shouldShed } from "./priority.ts";
 import { P2Quantile } from "./quantile.ts";
 import { ADMIT, refuse } from "./types.ts";
 import type {
   Admission,
+  AdmissionRequest,
   Clock,
   Observation,
   Policy,
@@ -142,6 +144,7 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
   private settledSinceUpdate = 0;
   /** Peak concurrency observed since the last control-loop run. */
   private peakInFlight = 0;
+  private readonly fair = new FairShare();
 
   constructor(options: LimiterOptions = {}, env?: Partial<PolicyEnv>) {
     const initial = options.initialLimit ?? DEFAULTS.initialLimit;
@@ -185,12 +188,35 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
     return this.limit === 0 ? 1 : this.inFlight / this.limit;
   }
 
-  admit(): Admission {
+  /**
+   * Pressure: 0 below the limit, rising to 1 at the hard ceiling. This is the local stand-in
+   * for the CPU utilisation Netflix sheds on — we cannot read someone else's machine, but we
+   * can read how close we are to refusing everything.
+   */
+  get pressure(): number {
+    const hardCeiling = this.limit * this.opts.maxQueueFactor;
+    if (this.inFlight <= this.limit) return 0;
+    return Math.min(1, (this.inFlight - this.limit) / Math.max(1, hardCeiling - this.limit));
+  }
+
+  admit(request?: AdmissionRequest): Admission {
     const queueCeiling = this.limit * this.opts.queueFactor;
     const hardCeiling = this.limit * this.opts.maxQueueFactor;
 
+    // Shed low-criticality work BEFORE shedding indiscriminately. Netflix's incident is the
+    // case for this: a 12x prefetch spike, >50% of all requests throttled, and user-initiated
+    // availability still above 99.4% because the load landed on work nobody was waiting for.
+    const pressure = this.pressure;
+    if (pressure > 0) {
+      if (shouldShed(pressure, priorityOf(request)) && this.inFlight >= this.limit) {
+        return refuse("shed-by-priority");
+      }
+      if (this.fair.shouldShed(request?.tenant, pressure)) return refuse("unfair-share");
+    }
+
     if (this.inFlight < this.limit) {
       this.inFlight++;
+      if (request?.tenant !== undefined) this.fair.record(request.tenant);
       return ADMIT;
     }
 
@@ -199,6 +225,7 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
     // which is exactly why the v0.2 bulkhead shipped without a queue (ADR-008).
     if (this.inFlight < queueCeiling) {
       this.inFlight++;
+      if (request?.tenant !== undefined) this.fair.record(request.tenant);
       return ADMIT;
     }
 
@@ -213,6 +240,7 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
       const admitEvery = Math.max(1, Math.round(1 / Math.max(0.001, through)));
       if (slot % admitEvery === 0) {
         this.inFlight++;
+        if (request?.tenant !== undefined) this.fair.record(request.tenant);
         return ADMIT;
       }
     }
