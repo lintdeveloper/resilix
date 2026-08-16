@@ -8,9 +8,9 @@ import { describe, expect, it, vi } from "vitest";
 import { Backoff } from "./backoff.ts";
 import { breaker } from "./breaker.ts";
 import { RetryBudget } from "./budget.ts";
-import { bulkhead } from "./bulkhead.ts";
+import { Bulkhead, bulkhead } from "./bulkhead.ts";
 import { FakeClock } from "./clock.ts";
-import { limiter } from "./limiter.ts";
+import { AdaptiveLimiter, limiter } from "./limiter.ts";
 import { RejectedError, pipeline } from "./pipeline.ts";
 import { FakeRandom, constantRandom } from "./random.ts";
 import { RateLimiter, rateLimit } from "./rate-limit.ts";
@@ -513,5 +513,51 @@ describe("§9.4 does the throttler double-count with other shedding?", () => {
 
     // Both-together must not exceed throttler-alone by any meaningful margin.
     expect(both).toBeLessThanOrEqual(throttlerOnly + 0.05);
+  });
+});
+
+describe("ADR-007 checklist, applied to every policy that counts", () => {
+  it("item 3: the limiter's growth tether ignores calls an inner policy refused", () => {
+    // peakInFlight feeds the maxLimitFactor tether. Raising it in admit() would let the limit
+    // grow on the strength of concurrency the upstream never actually absorbed.
+    const clock = new FakeClock();
+    const p = pipeline({
+      policies: [limiter({ initialLimit: 20, minSamples: 1 }), bulkhead({ concurrency: 2 })],
+      clock,
+      random: new FakeRandom(5),
+    });
+
+    const held: Array<() => void> = [];
+    for (let i = 0; i < 100; i++) {
+      const g = p.gate({});
+      if (g.ok) held.push(() => g.settleVerdict("success", 10));
+      clock.advance(20);
+    }
+    for (const settle of held) settle();
+
+    const lim = p.policiesFor()[0] as AdaptiveLimiter;
+    // Only 2 could ever be in flight, so the tether must keep the limit near 2 x factor —
+    // not near 100 x factor, which is what admit()-time counting would have permitted.
+    expect(lim.currentLimit).toBeLessThanOrEqual(20);
+  });
+
+  it("item 1 and 2: every policy releases on `rejected` without recording it", () => {
+    const clock = new FakeClock();
+    const obs = { verdict: "rejected" as const, latencyMs: 0, at: 0 };
+
+    const b = new Bulkhead({ concurrency: 3 });
+    b.admit();
+    b.settle(obs);
+    expect(b.inFlightCount).toBe(0); // released
+
+    const t = new AdaptiveThrottler({ minRequests: 0 }, { clock, random: constantRandom(0) });
+    for (let i = 0; i < 100; i++) t.settle(obs);
+    expect(t.metrics().requests).toBe(0); // recorded nothing
+
+    const l = new AdaptiveLimiter({ initialLimit: 20 }, { clock });
+    l.admit();
+    l.settle(obs);
+    expect(l.inFlightCount).toBe(0); // released
+    expect(l.currentLimit).toBe(20); // recorded nothing
   });
 });

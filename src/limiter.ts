@@ -191,7 +191,6 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
 
     if (this.inFlight < this.limit) {
       this.inFlight++;
-      if (this.inFlight > this.peakInFlight) this.peakInFlight = this.inFlight;
       return ADMIT;
     }
 
@@ -200,7 +199,6 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
     // which is exactly why the v0.2 bulkhead shipped without a queue (ADR-008).
     if (this.inFlight < queueCeiling) {
       this.inFlight++;
-      if (this.inFlight > this.peakInFlight) this.peakInFlight = this.inFlight;
       return ADMIT;
     }
 
@@ -215,7 +213,6 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
       const admitEvery = Math.max(1, Math.round(1 / Math.max(0.001, through)));
       if (slot % admitEvery === 0) {
         this.inFlight++;
-        if (this.inFlight > this.peakInFlight) this.peakInFlight = this.inFlight;
         return ADMIT;
       }
     }
@@ -224,12 +221,21 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
   }
 
   settle(obs: Observation): void {
+    const wasInFlight = this.inFlight;
     // Always release the slot, whatever the verdict — an inner policy may have refused after we
     // admitted, and leaking would permanently shrink capacity (ADR-007).
     this.inFlight = Math.max(0, this.inFlight - 1);
 
     // Our own shedding says nothing about the upstream.
     if (obs.verdict === "rejected") return;
+
+    // Peak concurrency is recorded HERE, not in admit(), and only for calls that actually ran.
+    //
+    // ADR-007 checklist item 3: counting in admit() and recording its counterpart in settle()
+    // miscounts anything refused in between. `peakInFlight` feeds the growth tether, so raising
+    // it on admission would let the limit grow on the strength of calls an inner policy refused
+    // — concurrency the upstream never actually absorbed.
+    if (wasInFlight > this.peakInFlight) this.peakInFlight = wasInFlight;
 
     // A 4xx is a real round trip and a valid latency sample, but carries no load information
     // beyond that. A 429 or a timeout is the strongest evidence of saturation we ever get.
