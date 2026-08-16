@@ -36,7 +36,10 @@ describe("use case: streaming LLM completions", () => {
     for (let i = 0; i < 20; i++) {
       p.gate({}).settle({ status: 200 }, 45_000);
     }
-    expect(brk(p).currentState).toBe("open"); // false outage on perfectly healthy traffic
+    // Not a false positive as such — slowCallMs says 3s and every call takes 45s, so the
+    // breaker is doing what it was told. It is the wrong ANSWER, because the caller cares
+    // about time to first token, not total stream duration. Hence mark().
+    expect(brk(p).currentState).toBe("open");
   });
 
   it("WITH mark(), latency is time-to-first-token and the stream stays healthy", async () => {
@@ -110,7 +113,59 @@ describe("use case: streaming LLM completions", () => {
   });
 });
 
-describe("window starvation — the silently dead trip condition", () => {
+describe("an age-saturated window still decides", () => {
+  it("opens a genuinely slow upstream that the window cannot hold minCalls of", async () => {
+    // Calls slower than maxAgeMs/minCalls (15s at the defaults) mean the window can never
+    // reach minCalls, and both rate conditions used to go permanently inert — the breaker sat
+    // at a 100% slow rate and did nothing. Once the age bound is evicting, every sample that
+    // exists IS in the window, so it is allowed to decide on those.
+    const clock = new FakeClock();
+    const p = pipeline({
+      policies: [breaker({ slowCallMs: 3_000, consecutiveBackstop: 0 })],
+      clock,
+    });
+    for (let i = 0; i < 40; i++) {
+      await p
+        .execute({}, () => {
+          clock.advance(45_000);
+          return { status: 200 };
+        })
+        .catch(() => undefined);
+    }
+    expect(brk(p).currentState).toBe("open");
+  });
+
+  it("does NOT open when slowCallMs is tuned to the workload", async () => {
+    // The mirror case, and the reason the fix is not just "lower minCalls": a 45s streaming
+    // upstream whose slowCallMs is set to ~3x its own p95 is healthy and must stay closed.
+    const clock = new FakeClock();
+    const p = pipeline({
+      policies: [breaker({ slowCallMs: 180_000, consecutiveBackstop: 0 })],
+      clock,
+    });
+    for (let i = 0; i < 40; i++) {
+      await p.execute({}, () => {
+        clock.advance(45_000);
+        return { status: 200 };
+      });
+    }
+    expect(brk(p).currentState).toBe("closed");
+  });
+
+  it("widens the age bound when it could not hold minCalls of a slow call", () => {
+    const clock = new FakeClock();
+    const p = pipeline({
+      policies: [
+        breaker({ slowCallMs: 3_000, window: { calls: 100, maxAgeMs: 10_000, minCalls: 20 } }),
+      ],
+      clock,
+    });
+    // 20 minCalls x 3000ms needs 60s of lookback, not the 10s requested.
+    expect(brk(p).stats().effectiveMaxAgeMs).toBe(60_000);
+  });
+});
+
+describe("window starvation reporting", () => {
   it("reports starved when slow calls stop the window reaching minCalls", () => {
     // A window bounded by age holds at most maxAgeMs/callDuration samples, so calls slower
     // than maxAgeMs/minCalls (15s at the defaults) make both rate conditions inert.

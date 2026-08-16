@@ -48,7 +48,13 @@ export interface BreakerOptions {
   window?: {
     /** Capacity. Default 100. */
     calls?: number;
-    /** Age bound. Default 300_000 (5 min). */
+    /**
+     * Age bound. Default 300_000 (5 min).
+     *
+     * Widened automatically to `minCalls * slowCallMs` if that is larger, because a window
+     * that cannot hold `minCalls` samples makes both rate conditions inert. Read
+     * `breaker.effectiveMaxAgeMs` for the value in force.
+     */
     maxAgeMs?: number;
     /** Minimum samples before the RATE conditions are evaluated at all. Default 20. */
     minCalls?: number;
@@ -99,6 +105,13 @@ export interface BreakerSnapshot {
   window: WindowSnapshot;
 }
 
+/**
+ * Minimum samples before an age-saturated window is allowed to decide. Small, because by
+ * definition this is every call that happened in the evaluation period — but not 1, so a
+ * single unlucky call cannot open a circuit.
+ */
+const SATURATED_FLOOR = 5;
+
 const DEFAULTS = {
   failureRate: 0.5,
   slowCallRate: 0.5,
@@ -144,6 +157,11 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
   private readonly openBackoff: number;
   private readonly maxOpenForMs: number;
   private readonly onStateChange: ((event: StateChangeEvent) => void) | undefined;
+  /**
+   * The age bound actually in force, which may be wider than the one requested — see the
+   * comment in the constructor. Exposed so the widening is discoverable rather than magic.
+   */
+  readonly effectiveMaxAgeMs: number;
 
   private state: BreakerState = "closed";
   private consecutiveFailures = 0;
@@ -175,9 +193,25 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
     this.maxOpenForMs = options.maxOpenForMs ?? DEFAULTS.maxOpenForMs;
     this.onStateChange = options.onStateChange;
 
+    // An age-bounded window holds at most `maxAgeMs / callDuration` samples, so an upstream
+    // whose calls approach `maxAgeMs / minCalls` can never reach `minCalls` and BOTH rate
+    // conditions go silently inert. Measured with the stock defaults and a healthy upstream:
+    //
+    //   call 4s-14s   -> the circuit OPENS on 100% healthy traffic
+    //   call >=16s    -> both rate conditions are dead; only the backstop is left
+    //
+    // A typical non-streaming LLM completion is 5-15s, so the defaults landed users squarely
+    // in the first band. `slowCallMs` is the best available proxy for the upper end of
+    // expected healthy latency (the docs say ~3x your p95), so widen the age bound until the
+    // window can actually hold `minCalls` of them. Widening is safe: the count bound still
+    // caps memory, and at slow call rates a long lookback is CORRECT rather than stale.
+    const requestedMaxAge = options.window?.maxAgeMs ?? DEFAULTS.maxAgeMs;
+    const neededForMinCalls = this.minCalls * options.slowCallMs;
+    this.effectiveMaxAgeMs = Math.max(requestedMaxAge, neededForMinCalls);
+
     this.window = new RollingWindow({
       calls: options.window?.calls ?? DEFAULTS.calls,
-      maxAgeMs: options.window?.maxAgeMs ?? DEFAULTS.maxAgeMs,
+      maxAgeMs: this.effectiveMaxAgeMs,
       slowCallMs: options.slowCallMs,
     });
   }
@@ -193,6 +227,7 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
     windowSize: number;
     state: BreakerState;
     starved: boolean;
+    effectiveMaxAgeMs: number;
   } {
     this.window.evictAgedAt(this.clock.now());
     return {
@@ -201,6 +236,7 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
       windowSize: this.window.size,
       state: this.state,
       starved: this.starved,
+      effectiveMaxAgeMs: this.effectiveMaxAgeMs,
     };
   }
 
@@ -291,7 +327,17 @@ export class CircuitBreaker implements Policy<BreakerSnapshot> {
       return;
     }
 
-    if (this.window.size >= this.minCalls) {
+    // `minCalls` guards against deciding on too little data WHEN MORE IS COMING. Once the age
+    // bound has started evicting, more is not coming: the window already holds every sample
+    // inside the evaluation period, and refusing to evaluate means both rate conditions are
+    // permanently inert. That is how an upstream slow enough to starve the window (calls
+    // longer than maxAgeMs / minCalls, 15s at the defaults) escaped the breaker entirely
+    // while sitting at a 100% slow rate.
+    const enoughSamples =
+      this.window.size >= this.minCalls ||
+      (this.window.agedOut && this.window.size >= Math.min(this.minCalls, SATURATED_FLOOR));
+
+    if (enoughSamples) {
       if (this.window.failureRate > this.failureRateThreshold) {
         this.trip("failure-rate", obs.at);
         return;

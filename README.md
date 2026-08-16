@@ -70,10 +70,17 @@ await api.execute(req, async (ctx) => {
 
 A window bounded by age holds at most `maxAgeMs / callDuration` samples, so an upstream whose
 calls take longer than `maxAgeMs / minCalls` — **15 s at the defaults** — can never reach
-`minCalls`. Both rate conditions then sit inert and only the consecutive backstop protects you.
-This is the same hole the backstop closes for sparse traffic, caused by slow calls instead of
-few calls. resilix cannot detect it at construction time, so it reports it:
-`breaker.stats().starved`, and the `resilix.breaker.starved` gauge. **Alert on it.**
+`minCalls`. That used to leave both rate conditions permanently inert.
+
+Two things prevent it now. The age bound is **widened automatically** to
+`minCalls × slowCallMs` when the configured one is too narrow to hold that many samples — read
+`breaker.stats().effectiveMaxAgeMs` for the value in force. And once the age bound is actually
+evicting, the breaker will decide on what it has (down to 5 samples) rather than waiting for
+`minCalls` that can never arrive: every sample that exists is already in the window.
+
+`breaker.stats().starved` and the `resilix.breaker.starved` gauge still report when the window
+is running below `minCalls`, which is worth alerting on as a sign your `slowCallMs` and window
+bounds do not match your workload.
 
 ### Guarding a database
 
