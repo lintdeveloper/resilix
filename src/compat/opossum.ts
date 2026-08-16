@@ -97,7 +97,9 @@ const isOurError = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
   typeof (error as { code?: unknown }).code === "string" &&
-  ["EOPENBREAKER", "ETIMEDOUT", "ESEMLOCKED"].includes((error as { code: string }).code);
+  ["EOPENBREAKER", "ETIMEDOUT", "ESEMLOCKED", "ESHUTDOWN"].includes(
+    (error as { code: string }).code,
+  );
 
 /**
  * Minimal synchronous emitter. Node's `EventEmitter` is deliberately not used: it would
@@ -143,7 +145,6 @@ class Emitter {
 }
 
 export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unknown> {
-  private readonly action: (...args: TArgs) => TReturn | Promise<TReturn>;
   private readonly breaker: ResilixBreaker;
   private readonly semaphore: Bulkhead | undefined;
   private readonly emitter = new Emitter();
@@ -152,12 +153,28 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   private readonly errorFilter: ((error: unknown) => boolean) | undefined;
 
   private fallbackFn: ((...args: unknown[]) => unknown) | undefined;
-  private enabled = true;
+  private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
+  private shutdown_ = false;
+  private enabled_ = true;
   private forcedOpen = false;
   private forcedClosed = false;
 
   readonly name: string;
   readonly group: string;
+  /** The wrapped function. opossum's test suite asserts identity against what was passed in. */
+  readonly action: (...args: TArgs) => TReturn | Promise<TReturn>;
+  /** The resolved options, as opossum exposes them. */
+  readonly options: Required<
+    Pick<
+      OpossumOptions,
+      | "timeout"
+      | "errorThresholdPercentage"
+      | "resetTimeout"
+      | "rollingCountTimeout"
+      | "volumeThreshold"
+    >
+  > &
+    OpossumOptions;
   readonly stats: OpossumStats = {
     fires: 0,
     successes: 0,
@@ -185,6 +202,14 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     }
 
     this.action = action;
+    this.options = {
+      ...options,
+      timeout: options.timeout ?? 10_000,
+      errorThresholdPercentage: options.errorThresholdPercentage ?? 50,
+      resetTimeout: options.resetTimeout ?? 30_000,
+      rollingCountTimeout: options.rollingCountTimeout ?? 10_000,
+      volumeThreshold: options.volumeThreshold ?? 0,
+    };
     this.name = options.name ?? action.name ?? "anonymous";
     this.group = options.group ?? this.name;
     this.clock = options.clock ?? systemClock;
@@ -247,6 +272,55 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     return { stats: this.stats };
   }
 
+  get isShutdown(): boolean {
+    return this.shutdown_;
+  }
+
+  get enabled(): boolean {
+    return this.enabled_;
+  }
+
+  /**
+   * Stop the breaker permanently and release anything it holds.
+   *
+   * opossum's suite calls this for cleanup after nearly every test, and asserts that a
+   * shutdown breaker is disabled and that every subsequent fire rejects with ESHUTDOWN.
+   */
+  shutdown(): void {
+    if (this.shutdown_) return;
+    this.shutdown_ = true;
+    this.enabled_ = false;
+    if (this.healthCheckTimer !== undefined) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = undefined;
+    }
+    this.emitter.emit("shutdown");
+  }
+
+  /**
+   * Run `fn` on an interval; if it rejects, open the circuit and emit `healthCheckFailed`.
+   *
+   * opossum invokes the function once immediately as well as on the interval, which its tests
+   * depend on — they assert the callback fires with an interval of 10 seconds and a test
+   * timeout far shorter than that.
+   */
+  healthCheck(fn: () => Promise<unknown>, interval = 5_000): void {
+    if (typeof fn !== "function") {
+      throw new TypeError("Health check function must be a function");
+    }
+    const run = (): void => {
+      Promise.resolve()
+        .then(fn)
+        .catch((error: unknown) => {
+          this.emitter.emit("healthCheckFailed", error);
+          this.open();
+        });
+    };
+    run();
+    this.healthCheckTimer = setInterval(run, interval);
+    (this.healthCheckTimer as unknown as { unref?: () => void }).unref?.();
+  }
+
   on(event: OpossumEvent | string, handler: (...args: unknown[]) => void): this {
     this.emitter.on(event, handler);
     return this;
@@ -282,18 +356,22 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   disable(): void {
-    this.enabled = false;
+    this.enabled_ = false;
   }
 
   enable(): void {
-    this.enabled = true;
+    this.enabled_ = true;
   }
 
   async fire(...args: TArgs): Promise<TReturn> {
+    if (this.shutdown_) {
+      const error = new OpossumError("The circuit has been shutdown.", "ESHUTDOWN");
+      return Promise.reject(error) as Promise<TReturn>;
+    }
     this.stats.fires++;
     this.emitter.emit("fire", args);
 
-    if (!this.enabled) return (await this.action(...args)) as TReturn;
+    if (!this.enabled_) return (await this.action(...args)) as TReturn;
 
     if (this.forcedOpen || (!this.forcedClosed && !this.breaker.admit().ok)) {
       this.stats.rejects++;
