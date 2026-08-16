@@ -1,6 +1,7 @@
+import { resilientFetch } from "../dist/fetch.js";
 // Runtime smoke test: import the BUILT artifact and drive a real breaker to completion.
 // Runs identically under Node, Bun and Deno. No test framework, no dependencies.
-import { FakeClock, breaker, bulkhead, classifyHttp, pipeline } from "../dist/index.js";
+import { FakeClock, breaker, bulkhead, classifyHttp, limiter, pipeline } from "../dist/index.js";
 
 const assert = (cond, what) => {
   if (!cond) {
@@ -52,5 +53,16 @@ const restored = pipeline({
 });
 restored.hydrate(JSON.parse(JSON.stringify(api.snapshot())));
 assert(true, "snapshot round-trips across clock origins");
+
+// The fetch adapter is WHATWG-only, so it has to work on every runtime unchanged.
+const guarded = resilientFetch({
+  policies: [breaker({ slowCallMs: 3_000 }), limiter()],
+  timeoutMs: 5_000,
+  fetch: async () => new Response("hi", { status: 200 }),
+});
+const fetched = await guarded("https://api.example.com/x");
+assert(fetched.status === 200, "resilientFetch works");
+assert((await fetched.text()) === "hi", "resilientFetch body is readable");
+assert(guarded.pipeline.trackedKeys.includes("api.example.com"), "resilientFetch keys per host");
 
 console.log("\nruntime smoke passed");

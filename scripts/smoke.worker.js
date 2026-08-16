@@ -1,3 +1,4 @@
+import { resilientFetch } from "../dist/fetch.js";
 // Cloudflare Workers guard.
 //
 // Workers rejects timers, async I/O and random values in GLOBAL SCOPE. Importing resilix at
@@ -14,11 +15,17 @@ const api = pipeline({
   timeoutMs: 5_000,
 });
 
+// Also built at module scope on purpose: the adapter must be as import-safe as the core.
+const guardedFetch = resilientFetch({
+  policies: [breaker({ slowCallMs: 3_000 })],
+  timeoutMs: 5_000,
+});
+
 export default {
   async fetch(request) {
     const gate = api.gate(request);
     if (!gate.ok) return new Response(`refused: ${gate.reason}`, { status: 503 });
     gate.settle({ status: 200 }, 12);
-    return new Response("ok");
+    return new Response(guardedFetch === undefined ? "no adapter" : "ok");
   },
 };

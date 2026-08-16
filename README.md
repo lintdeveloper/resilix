@@ -407,6 +407,15 @@ Opt back into the resilix behaviour when you're ready:
 new CircuitBreaker(action, { slowCallMs: 3000, slowCallRate: 0.5, consecutiveBackstop: 10 });
 ```
 
+## Documentation
+
+| | |
+|---|---|
+| [`docs/decisions.md`](docs/decisions.md) | why resilix is shaped the way it is — every `ADR-00N` comment in the source resolves here |
+| [`docs/specs/`](docs/specs/) | the design specs, written before the code and carrying every default's provenance |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | the one rule that gets broken most, and how the build now enforces it |
+| [`READING.md`](READING.md) | the sources behind each version, and what remains unread |
+
 ## License
 
 MIT © Musa Musa

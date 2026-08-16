@@ -45,6 +45,9 @@ when one fails.
 6. **Would inner shedding change this policy's view of the upstream?** Simulate a healthy
    upstream behind a tight inner cap. Anything but "no effect" is this bug.
 
+Full reasoning for this and every other structural choice is in
+[`docs/decisions.md`](docs/decisions.md).
+
 ## The rest of the shape
 
 - **Core has zero runtime dependencies and does no I/O.** Anything needing a dependency lives in

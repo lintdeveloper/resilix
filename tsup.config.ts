@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/otel.ts", "src/compat/opossum.ts"],
+  entry: ["src/index.ts", "src/otel.ts", "src/fetch.ts", "src/compat/opossum.ts"],
   format: ["esm", "cjs"],
   dts: true,
   clean: true,

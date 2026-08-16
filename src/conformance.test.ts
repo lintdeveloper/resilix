@@ -1,5 +1,5 @@
 /**
- * ADR-007 conformance, enforced mechanically.
+ * ADR-007 conformance, enforced mechanically. See docs/decisions.md and CONTRIBUTING.md.
  *
  * The rule — "a policy may never learn anything from a call it did not make" — has now been
  * violated four times, three of them AFTER it was written down, and every one was caught by a

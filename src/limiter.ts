@@ -248,7 +248,7 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
   settle(obs: Observation): void {
     const wasInFlight = this.inFlight;
     // Always release the slot, whatever the verdict — an inner policy may have refused after we
-    // admitted, and leaking would permanently shrink capacity (ADR-007).
+    // admitted, and leaking would permanently shrink capacity (ADR-007 in docs/decisions.md).
     this.inFlight = Math.max(0, this.inFlight - 1);
 
     // Our own shedding says nothing about the upstream.
@@ -256,7 +256,7 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
 
     // Peak concurrency is recorded HERE, not in admit(), and only for calls that actually ran.
     //
-    // ADR-007 checklist item 3: counting in admit() and recording its counterpart in settle()
+    // ADR-007 checklist item 3 (docs/decisions.md, CONTRIBUTING.md): counting in admit() and recording its counterpart in settle()
     // miscounts anything refused in between. `peakInFlight` feeds the growth tether, so raising
     // it on admission would let the limit grow on the strength of calls an inner policy refused
     // — concurrency the upstream never actually absorbed.
