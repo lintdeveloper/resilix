@@ -30,16 +30,23 @@ loop wrong is worse than shipping nothing.
 
 | ✓ | Read | Time | Why it gates v0.3 |
 |---|---|---|---|
-| ☐ | Netflix — *Performance Under Load* | 30m | The origin of adaptive concurrency limits. Explains why concurrency and not rate. |
-| ☐ | Uber — *Cinnamon: Using Century Old Tech to Build a Mean Load Shedder* | 30m | Vegas + PID in production, with numbers. Closest existing thing to v0.3+v0.5. |
-| ☐ | Uber — *PID Controller for Cinnamon* | 30m | Why PID beats CoDel: CoDel oscillates between rejecting everything and nothing; the integral term remembers. Decides whether we use PID at all. |
-| ☐ | Uber — *Cinnamon Auto-Tuner: Adaptive Concurrency in the Wild* | 30m | How the inflight limit is auto-tuned from latency + error rate. |
-| ☐ | Envoy — `adaptive_concurrency` filter docs | 20m | The production-tested formula and every default: gradient, `sqrt(limit)` headroom, p90 sampling, minRTT re-measurement at concurrency 3 with 10% jitter. |
-| ☐ | Harchol-Balter — Little's Law + open-vs-closed systems chapters **only** | 45m | `L = λW` is our entire defence against "AWS already does adaptive throttling". Two chapters. Skip the other 500 pages. |
+| ☑ | Netflix — *Performance Under Load* | 30m | The origin of adaptive concurrency limits. Explains why concurrency and not rate. |
+| ☑ | Uber — *Cinnamon: Using Century Old Tech to Build a Mean Load Shedder* | 30m | Vegas + PID in production, with numbers. Closest existing thing to v0.3+v0.5. |
+| ☑ | Uber — *PID Controller for Cinnamon* | 30m | Why PID beats CoDel: CoDel oscillates between rejecting everything and nothing; the integral term remembers. Decides whether we use PID at all. |
+| ☑ | Uber — *Cinnamon Auto-Tuner: Adaptive Concurrency in the Wild* | 30m | How the inflight limit is auto-tuned from latency + error rate. |
+| ☑ | Envoy — `adaptive_concurrency` filter docs | 20m | The production-tested formula and every default: gradient, `sqrt(limit)` headroom, p90 sampling, minRTT re-measurement at concurrency 3 with 10% jitter. |
+| ☑ | Harchol-Balter — Little's Law + open-vs-closed systems chapters **only** | 45m | `L = λW` is our entire defence against "AWS already does adaptive throttling". Two chapters. Skip the other 500 pages. |
 | ☐ | TCP Vegas — Brakmo & Peterson | 30m | The direct ancestor. Short. |
 
-**Expected output of Tier 2:** a written spec for `limiter.ts` — chosen algorithm, every default with
-its provenance, and the streaming-quantile decision confirmed or overturned — *before* any code.
+**Expected output of Tier 2: DONE** — `docs/specs/adaptive-limiter.md`. Vegas chosen (Uber and
+Netflix both picked it for this problem), every default carries its source, and the two numbers
+that are ours rather than borrowed are labelled as guesses. Five open questions are recorded
+rather than papered over — the most important being that resilix has no timers by constitution,
+so the control loop must be driven by call settlement rather than an interval.
+
+Still outstanding: **TCP Vegas (Brakmo & Peterson)** — everything in the spec is Vegas *as
+implemented* by Netflix and Uber, not from the paper. Read it before tuning alpha/beta away from
+their values.
 
 ---
 
@@ -70,6 +77,6 @@ Read anything new they publish.
 ## Progress
 
 - [ ] Tier 1 complete → v0.2 unblocked
-- [ ] Tier 2 complete → v0.3 unblocked
+- [~] Tier 2 — spec written; TCP Vegas paper still unread (needed only before re-tuning alpha/beta)
 - [ ] Tier 3 complete → v0.5 unblocked
 - [ ] Tier 4 complete → v2.0 unblocked

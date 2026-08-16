@@ -206,7 +206,8 @@ Pre-release.
 
 - **v0.1** classifier · circuit breaker · dual-bound window · key registry · pipeline executor
 - **v0.2** `resilix/otel` · `resilix/compat/opossum` · bulkhead · observers
-- **v0.3** adaptive concurrency limiting — the headline release, and the one this library exists for
+- **v0.3** adaptive concurrency limiting — the headline release, and the one this library exists
+  for. Designed but not built: [`docs/specs/adaptive-limiter.md`](docs/specs/adaptive-limiter.md)
 
 The full roadmap — adaptive concurrency limiting, adaptive throttling, execution
 budgets, hedging, criticality — is in [`docs/resilix-architecture.pdf`](docs/resilix-architecture.pdf),
