@@ -1,6 +1,6 @@
 # Spec: retry, budgets, throttling and rate limiting (v0.4)
 
-**Status:** design locked, not implemented.
+**Status:** implemented in v0.4.
 **Gate:** deliverable of the v0.4 items in `READING.md` Tier 1. No code before this exists.
 
 Every default carries its provenance. Where a number is ours, it says so.

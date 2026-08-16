@@ -211,6 +211,38 @@ cannot see is not a deadline.
 Every one arrives as `RejectedError.reason` and on `onRejection`, so "why was I refused?" always
 has an answer.
 
+## Hedging, criticality and fairness
+
+```ts
+const api = pipeline<Req>({
+  key: (r) => r.host,
+  priority: (r) => (r.background ? "bulk" : "critical"),
+  tenant: (r) => r.orgId,
+  policies: [throttler(), breaker({ slowCallMs: 3_000 }), limiter()],
+  hedge: { idempotent: true },        // delay defaults to the measured p95
+  retry: { budget: shared },
+});
+```
+
+**Hedging** races a second attempt against a slow first one and cancels the loser. The delay
+defaults to the **measured p95 for that key**, not a constant — Dean & Barroso's ~2% overhead is
+a consequence of hedging at a high percentile, so a fixed number loses the property that made it
+cheap. It takes the first *success*, not the first result: a hedge that fails fast must not beat
+an original that would have succeeded.
+
+`idempotent: true` is **required**, not advisory. A hedge sends the same request twice; on a
+payment that is a double charge.
+
+**Criticality** sheds low-value work first, using Netflix's four buckets — `critical`,
+`degraded`, `bestEffort`, `bulk`. Unlabelled work defaults to `critical`, because the
+alternative silently sheds things nobody classified. In Netflix's own incident a 12× prefetch
+spike saw over half of all requests throttled while user-initiated availability stayed above
+99.4% — the load landed entirely on work nobody was waiting for.
+
+**Fairness** is relative, not quota-based: under pressure the tenant furthest above
+`admitted / activeTenants` is shed first, and heaviness decays so nobody is punished forever. No
+number to configure and nothing to keep up to date.
+
 ## When a circuit breaker is the wrong tool
 
 Worth saying plainly, because it is the best-known criticism of the pattern and it is correct.
@@ -296,6 +328,7 @@ Pre-release.
 - **v0.3** adaptive concurrency limiting · P² streaming quantiles · proportional shedding —
   built to `docs/specs/adaptive-limiter.md`
 - **v0.4** retry with full jitter · shared retry budgets · SRE adaptive throttler · token-bucket rate limiter
+- **v0.5** hedging with cancellation · criticality buckets · tenant fairness
 
 What is still ahead — adaptive throttling, execution budgets, hedging, criticality and
 per-tenant fairness, then inbound protection — is in `docs/resilix-architecture.pdf`, along with

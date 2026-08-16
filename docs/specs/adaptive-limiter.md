@@ -1,6 +1,6 @@
 # Spec: adaptive concurrency limiter (v0.3)
 
-**Status:** design locked, not implemented.
+**Status:** implemented in v0.3.
 **Gate:** this document is the deliverable of Tier 2 in `READING.md`. No limiter code before it exists.
 
 Every default below carries its provenance. Where a number is a guess, it says so.
