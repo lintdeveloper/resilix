@@ -72,4 +72,7 @@ jobs:
       # The specific thing being guarded: Workers rejects timers, async I/O and random values in
       # global scope. cockatiel crashes on `import { retry }` for exactly this reason (their
       # #105, declined upstream). A global-scope import that survives here is the whole point.
-      - run: npx --yes wrangler@3 deploy --dry-run --outdir /tmp/worker-build scripts/smoke.worker.js
+      - run: >
+          npx --yes wrangler@4 deploy --dry-run --outdir /tmp/worker-build
+          --name resilix-runtime-smoke --compatibility-date 2026-01-01
+          scripts/smoke.worker.js
