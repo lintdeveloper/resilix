@@ -124,6 +124,28 @@ One settled call, read differently by each policy. This table is the design:
 That last row matters more than it looks. Our own shedding must never be recorded as evidence about
 the upstream — without it, an open breaker observes its own rejections and can never close.
 
+## When a circuit breaker is the wrong tool
+
+Worth saying plainly, because it is the best-known criticism of the pattern and it is correct.
+Marc Brooker's argument, in short: **circuit breakers turn partial failures into complete
+ones.** If one shard of a sharded backend is overloaded while the rest are healthy, a breaker
+either trips — degrading every caller hitting the healthy shards — or it does not trip, in which
+case it is doing nothing. His example is heterogeneous load: one key range gets hammered, the
+others idle, and the client cannot tell from outside whether the backend is down or merely hot
+for particular parameters.
+
+Three practical consequences:
+
+- **Key by the thing that fails independently**, not by host. `key: (req) => req.shardId` or
+  `key: (req) => req.tenant` is usually more correct than keying by hostname. resilix keys by
+  whatever you return, so this is your choice to get right.
+- **If the failure domain is not visible in the request, do not use a breaker.** No key choice
+  helps when you cannot see which shard you are talking to. Shed load proportionally instead —
+  that is what the adaptive limiter is for (v0.3), and a partial outage then produces partial
+  shedding rather than an all-or-nothing decision.
+- **A breaker is right for a homogeneous upstream** that is wholly up or wholly down. That is
+  the case resilix was built for: one provider, one endpoint, degrading as a unit.
+
 ## Three trip conditions
 
 ```
