@@ -1,6 +1,6 @@
 {
   "name": "resilix",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Load limiting for JavaScript — a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
   "keywords": [
     "circuit-breaker",
