@@ -3,6 +3,13 @@ import { defineConfig } from "vitepress";
 // The site is deployed to https://lintdeveloper.github.io/resilix/, so every asset and link
 // needs the repo name as a prefix. Getting this wrong produces a page that loads locally and
 // 404s its own CSS in production, which is the classic Pages failure.
+//
+// PENDING: js-org/js.org#12312 requests resilix.js.org. When it merges, this becomes "/" and
+// the custom domain has to be set in repo settings — an artifact CNAME file is ignored when
+// publishing via a workflow. The switch is deliberately NOT staged ahead of the merge: setting
+// the custom domain makes the github.io URL redirect to a hostname that does not resolve yet,
+// and js.org's most common rejection reason is a reviewer finding no content on the page.
+// docs/DEPLOYING.md has the full sequence.
 const base = "/resilix/";
 
 export default defineConfig({
@@ -12,6 +19,10 @@ export default defineConfig({
   description:
     "Load limiting for JavaScript. A circuit breaker that trips when your upstream is slow but not failing.",
   cleanUrls: true,
+
+  // Operational notes for this repo, not documentation for users of the library. It lives in
+  // docs/ because that is where it is looked for, but it must not become a published page.
+  srcExclude: ["DEPLOYING.md"],
 
   // A broken link is a build failure, not a warning. Most of this site is assembled by
   // including regions of the root README, and a moved heading would otherwise rot silently.
