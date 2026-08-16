@@ -1,6 +1,6 @@
 // The same, via require(), to prove the CJS build resolves.
 const { breaker, pipeline, FakeClock, classifyHttp } = require("../dist/index.cjs");
-const CB = require("../dist/compat/opossum.cjs");
+const CB = require("../dist/adapters/opossum.cjs");
 
 if (classifyHttp({ status: 422 }) !== "answered") throw new Error("classifier wrong under CJS");
 

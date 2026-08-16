@@ -1,4 +1,4 @@
-import { resilientFetch } from "../dist/fetch.js";
+import { resilientFetch } from "../dist/adapters/fetch.js";
 // Cloudflare Workers guard.
 //
 // Workers rejects timers, async I/O and random values in GLOBAL SCOPE. Importing resilix at

@@ -80,6 +80,7 @@ file inside `src/` must never change what a consumer imports.
 ## Working on it
 
 ```bash
+pnpm verify            # everything CI runs — do this before pushing
 pnpm test              # unit tests
 pnpm test:coverage     # with thresholds
 pnpm test:compat       # opossum's OWN suite against our shim (362/362)
@@ -87,7 +88,14 @@ pnpm test:integration  # classifySql against a real Postgres; needs RESILIX_TEST
 pnpm lint              # biome, including the restricted-globals rule
 pnpm typecheck
 pnpm build
+pnpm docs:dev          # the documentation site, locally
+pnpm docs:check        # build it and audit every internal link and #anchor
 ```
+
+`pnpm test` alone is not enough to predict CI. It does not run coverage thresholds and does not
+run the runtime smoke scripts against the built artifact, which is how a file move once shipped
+two red builds — `dist/fetch.js` had become `dist/adapters/fetch.js` and only the smoke scripts
+imported it by path. `pnpm verify` runs the lot.
 
 Specs live in `docs/specs/` and are written **before** the code they describe — the adaptive
 limiter and the retry/throttling work both gated on theirs. If you are adding a policy, the spec

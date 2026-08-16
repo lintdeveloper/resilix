@@ -1,4 +1,4 @@
-import { resilientFetch } from "../dist/fetch.js";
+import { resilientFetch } from "../dist/adapters/fetch.js";
 // Runtime smoke test: import the BUILT artifact and drive a real breaker to completion.
 // Runs identically under Node, Bun and Deno. No test framework, no dependencies.
 import { FakeClock, breaker, bulkhead, classifyHttp, limiter, pipeline } from "../dist/index.js";

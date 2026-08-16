@@ -76,6 +76,7 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm check:package && pnpm test:smoke && pnpm docs:check",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:check": "vitepress build docs && node scripts/check-links.mjs",
