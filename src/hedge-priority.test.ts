@@ -255,3 +255,68 @@ describe("spec §7.1 — is the 2x queue factor too generous?", () => {
     expect(double).toBeLessThanOrEqual(half);
   });
 });
+
+describe("review findings — regressions", () => {
+  it("a hedge that fails fast must not beat an original that would have succeeded", async () => {
+    // Found in review. Racing on first-SETTLED meant hedging made reliability WORSE: two copies
+    // double the exposure to a transient failure, and the quicker error won. Here the hedge
+    // fails at ~1ms and the original succeeds at ~40ms — the call must succeed.
+    let n = 0;
+    const p = pipeline({
+      policies: [],
+      timeoutMs: 5_000,
+      hedge: { idempotent: true, delayMs: 5 },
+    });
+
+    const result = await p.execute({}, async () => {
+      const first = n++ === 0;
+      if (first) {
+        await sleep(40);
+        return { status: 200 };
+      }
+      await sleep(1);
+      throw Object.assign(new Error("hedge failed"), { code: "ECONNRESET" });
+    });
+
+    expect(result).toEqual({ status: 200 });
+  }, 30_000);
+
+  it("still rejects when every copy fails", async () => {
+    const p = pipeline({
+      policies: [],
+      timeoutMs: 5_000,
+      hedge: { idempotent: true, delayMs: 5 },
+    });
+    await expect(
+      p.execute({}, async () => {
+        await sleep(2);
+        throw Object.assign(new Error("all down"), { code: "ECONNRESET" });
+      }),
+    ).rejects.toThrow("all down");
+  }, 30_000);
+
+  it("fairness is charged on settle, not on admission", () => {
+    // ADR-007 checklist item 3, violated in the first cut of v0.5. Charging usage at admit()
+    // bills a tenant for calls an inner policy refused — and since usage is what gets you shed,
+    // that is a feedback loop inside the fairness mechanism itself.
+    const clock = new FakeClock();
+    const p = pipeline<{ t: string }>({
+      policies: [limiter({ initialLimit: 2 })],
+      tenant: (i) => i.t,
+      clock,
+      random: new FakeRandom(7),
+    });
+
+    // "blocked" is admitted by nothing useful — every call is refused downstream — so it must
+    // accrue no usage at all.
+    for (let i = 0; i < 50; i++) {
+      const g = p.gate({ t: "blocked" });
+      if (g.ok) g.settleVerdict("rejected", 0);
+      clock.advance(5);
+    }
+
+    const lim = p.policiesFor()[0] as AdaptiveLimiter;
+    // Nothing was charged, so nothing can be considered unfair.
+    expect(lim.admit({ tenant: "blocked" }).ok).toBe(true);
+  });
+});

@@ -79,7 +79,8 @@
     "ci:version": "changeset version && biome format --write package.json",
     "test:integration": "RESILIX_TEST_DATABASE_URL=${RESILIX_TEST_DATABASE_URL:-postgres://postgres:resilix@localhost:5459/resilix_test} vitest run src/sql-integration.test.ts",
     "test:compat": "node scripts/opossum-compat.mjs",
-    "test:smoke": "pnpm build && node scripts/smoke.mjs && node scripts/smoke.cjs"
+    "test:smoke": "pnpm build && node scripts/smoke.mjs && node scripts/smoke.cjs",
+    "test:perf": "RESILIX_PERF=1 vitest run src/limiter.simulation.test.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

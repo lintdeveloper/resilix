@@ -267,7 +267,12 @@ export class Pipeline<I = unknown> {
       }
       const at = this.clock.now();
       for (let i = admitted.length - 1; i >= 0; i--) {
-        admitted[i]?.settle({ verdict: "rejected", latencyMs: 0, at });
+        admitted[i]?.settle({
+          verdict: "rejected",
+          latencyMs: 0,
+          at,
+          ...(request.tenant === undefined ? {} : { tenant: request.tenant }),
+        });
       }
       this.observer.onRejection({
         key,
@@ -287,7 +292,12 @@ export class Pipeline<I = unknown> {
     }
 
     const settleVerdict = (verdict: Verdict, latencyMs: number, retryAfterMs?: number): void => {
-      const obs: Observation = { verdict, latencyMs, at: this.clock.now() };
+      const obs: Observation = {
+        verdict,
+        latencyMs,
+        at: this.clock.now(),
+        ...(request.tenant === undefined ? {} : { tenant: request.tenant }),
+      };
       // Innermost first, so an inner policy releases its slot before an outer one reads state.
       for (let i = admitted.length - 1; i >= 0; i--) admitted[i]?.settle(obs);
       if (verdict !== "rejected") this.latency.get(key).push(latencyMs);
@@ -359,48 +369,66 @@ export class Pipeline<I = unknown> {
 
     const controllers: AbortController[] = [];
     const timers: Array<ReturnType<typeof setTimeout>> = [];
-    const cancelLosers = () => {
+    const cleanup = () => {
       for (const t of timers) clearTimeout(t);
       for (const c of controllers) c.abort();
     };
 
-    const launch = (): Promise<R> => {
-      const controller = new AbortController();
-      controllers.push(controller);
-      return this.attempt(input, fn, controller);
-    };
+    return new Promise<R>((resolve, reject) => {
+      let done = false;
+      let outstanding = 0;
+      let scheduled = maxHedges;
+      let firstError: unknown;
 
-    try {
-      const racers: Array<Promise<R>> = [launch()];
+      const finish = (fn: () => void) => {
+        if (done) return;
+        done = true;
+        cleanup();
+        fn();
+      };
+
+      const launch = () => {
+        outstanding++;
+        const controller = new AbortController();
+        controllers.push(controller);
+        this.attempt(input, fn, controller).then(
+          (value) => finish(() => resolve(value)),
+          (error) => {
+            // First SUCCESS wins — not first result.
+            //
+            // Racing on first-settled would mean a hedge that fails fast beats an original
+            // that would have succeeded, so hedging would make reliability WORSE: two copies
+            // double the exposure to a transient failure and the quicker error wins. That is
+            // the opposite of the point. A copy that fails is simply out of the race.
+            if (firstError === undefined) firstError = error;
+            outstanding--;
+            if (outstanding === 0 && scheduled === 0) finish(() => reject(firstError));
+          },
+        );
+      };
+
+      launch();
 
       for (let n = 0; n < maxHedges; n++) {
-        const hedged = new Promise<R>((resolve, reject) => {
-          const timer = setTimeout(
-            () => {
-              // A hedge is an amplifier exactly like a retry, so it spends the same budget.
-              if (options.budget && !options.budget.tryConsume()) return;
-              launch().then(resolve, reject);
-            },
-            delay * (n + 1),
-          );
-          (timer as unknown as { unref?: () => void }).unref?.();
-          timers.push(timer);
-        });
-        racers.push(hedged);
+        const timer = setTimeout(
+          () => {
+            scheduled--;
+            if (done) return;
+            // A hedge is an amplifier exactly like a retry, so it spends the same budget.
+            if (options.budget && !options.budget.tryConsume()) {
+              if (outstanding === 0 && scheduled === 0) finish(() => reject(firstError));
+              return;
+            }
+            launch();
+          },
+          delay * (n + 1),
+        );
+        (timer as unknown as { unref?: () => void }).unref?.();
+        timers.push(timer);
       }
-
-      return await Promise.race(racers);
-    } finally {
-      cancelLosers();
-    }
+    });
   }
 
-  /**
-   * Retry sits OUTSIDE everything else, so each attempt re-consults the breaker, limiter and
-   * throttler. That ordering is deliberate: a burst of retries inside a breaker would count as
-   * many separate failures, whereas outside it is the budget — not the breaker's ignorance —
-   * that bounds amplification.
-   */
   private async executeWithRetry<R>(
     input: I,
     fn: (ctx: ExecutionContext) => R | Promise<R>,

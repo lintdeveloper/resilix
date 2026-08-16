@@ -40,6 +40,15 @@ export interface Observation {
   latencyMs: number;
   /** From the injected clock — never `Date.now()` inside a policy. */
   at: number;
+  /**
+   * Which tenant this call belonged to, when the pipeline was given a `tenant` accessor.
+   *
+   * Present so fairness can be accounted at SETTLE time. Counting usage at admit() would
+   * charge a tenant for calls an inner policy refused — and since heavy usage is what gets you
+   * shed, that is a positive feedback loop inside a mechanism whose entire job is fairness
+   * (ADR-007, checklist item 3).
+   */
+  tenant?: string;
 }
 
 /**

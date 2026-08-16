@@ -216,7 +216,6 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
 
     if (this.inFlight < this.limit) {
       this.inFlight++;
-      if (request?.tenant !== undefined) this.fair.record(request.tenant);
       return ADMIT;
     }
 
@@ -225,7 +224,6 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
     // which is exactly why the v0.2 bulkhead shipped without a queue (ADR-008).
     if (this.inFlight < queueCeiling) {
       this.inFlight++;
-      if (request?.tenant !== undefined) this.fair.record(request.tenant);
       return ADMIT;
     }
 
@@ -240,7 +238,6 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
       const admitEvery = Math.max(1, Math.round(1 / Math.max(0.001, through)));
       if (slot % admitEvery === 0) {
         this.inFlight++;
-        if (request?.tenant !== undefined) this.fair.record(request.tenant);
         return ADMIT;
       }
     }
@@ -264,6 +261,11 @@ export class AdaptiveLimiter implements Policy<LimiterSnapshot> {
     // it on admission would let the limit grow on the strength of calls an inner policy refused
     // — concurrency the upstream never actually absorbed.
     if (wasInFlight > this.peakInFlight) this.peakInFlight = wasInFlight;
+
+    // Fairness is charged HERE, for the same reason as peakInFlight above. Charging at admit()
+    // would bill a tenant for calls an inner policy refused, and since usage is what gets you
+    // shed, that is a feedback loop inside the fairness mechanism itself.
+    if (obs.tenant !== undefined) this.fair.record(obs.tenant);
 
     // A 4xx is a real round trip and a valid latency sample, but carries no load information
     // beyond that. A 429 or a timeout is the strongest evidence of saturation we ever get.
