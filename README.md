@@ -213,9 +213,16 @@ swallowing wrapper: a failing exporter can neither influence nor break an admiss
 
 ## Migrating from opossum (`resilix/compat/opossum`)
 
-> **Scope of the claim:** drop-in for opossum's *documented* API, verified by 28 tests written
-> against it. Running opossum's own test suite against the shim in CI is the bar for an
-> unqualified "drop-in" claim, and that is not done yet.
+> **Scope of the claim, measured:** the shim passes **335 of 360** of opossum's own test suite
+> (93%), run unmodified against `resilix/compat/opossum`. Reproduce it yourself with
+> `pnpm test:compat` — it fetches their suite, points their `require('../')` at our build, and
+> fails if this README's number is out of date.
+>
+> Three of their test files are excluded because no compatibility layer can ever satisfy them:
+> `cache.js`, `semaphore-test.js` and `status-test.js` `require('../lib/…')` directly, so they
+> unit-test opossum's private modules rather than its public API. Caching and call coalescing
+> are also unimplemented on purpose — passing `cache`, `coalesce` or `cacheTTL` throws rather
+> than silently doing nothing.
 
 ```diff
 - const CircuitBreaker = require('opossum');
