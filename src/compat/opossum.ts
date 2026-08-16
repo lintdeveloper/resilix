@@ -43,6 +43,11 @@ export interface OpossumOptions {
   state?: OpossumState;
   /** Do not open the circuit until this many ms have elapsed since construction. */
   allowWarmUp?: boolean;
+  /** Drive bucket rotation externally by emitting `rotate`, instead of on a timer. */
+  rotateBucketController?: {
+    on: (event: string, listener: () => void) => unknown;
+    removeListener: (event: string, listener: () => void) => unknown;
+  };
   /** Aborted when a call times out. Any object with an `abort()` method is accepted. */
   abortController?: { abort: () => void; signal?: unknown };
   /** Create a fresh AbortController per call, and again when the circuit half-opens. */
@@ -91,7 +96,27 @@ export interface OpossumState {
   lastTimerAt?: number | undefined;
 }
 
+/** One bucket of opossum's rolling window. */
+export interface OpossumBucket {
+  failures: number;
+  fallbacks: number;
+  successes: number;
+  rejects: number;
+  fires: number;
+  timeouts: number;
+  cacheHits: number;
+  cacheMisses: number;
+  coalesceCacheHits: number;
+  coalesceCacheMisses: number;
+  semaphoreRejections: number;
+  percentiles: Record<string, number>;
+  latencyTimes: number[];
+  latencyMean: number;
+  isCircuitBreakerOpen?: boolean;
+}
+
 export interface OpossumStats {
+  latencyMean?: number;
   fires: number;
   successes: number;
   failures: number;
@@ -167,6 +192,133 @@ class Emitter {
   }
 }
 
+const emptyBucket = (): OpossumBucket => ({
+  failures: 0,
+  fallbacks: 0,
+  successes: 0,
+  rejects: 0,
+  fires: 0,
+  timeouts: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  coalesceCacheHits: 0,
+  coalesceCacheMisses: 0,
+  semaphoreRejections: 0,
+  percentiles: {},
+  latencyTimes: [],
+  latencyMean: 0,
+});
+
+/**
+ * opossum's rolling, bucketed status window.
+ *
+ * resilix's own breaker keeps a single dual-bound window and exposes rates; opossum exposes an
+ * ARRAY of time buckets that callers read directly (`status.window[0].isCircuitBreakerOpen`),
+ * and rotates them either on a timer or when an injected controller emits `rotate`. Their
+ * tests read that structure, so the shim has to reproduce it rather than translate.
+ */
+class OpossumStatus {
+  readonly buckets: OpossumBucket[];
+  private readonly emitter: Emitter;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private readonly controller: OpossumOptions["rotateBucketController"];
+  private readonly rotateListener: () => void;
+
+  constructor(
+    bucketCount: number,
+    rollingCountTimeout: number,
+    emitter: Emitter,
+    controller?: OpossumOptions["rotateBucketController"],
+  ) {
+    this.buckets = Array.from({ length: Math.max(1, bucketCount) }, emptyBucket);
+    this.emitter = emitter;
+    this.controller = controller;
+    this.rotateListener = () => this.rotate();
+
+    if (controller) {
+      controller.on("rotate", this.rotateListener);
+    } else if (rollingCountTimeout > 0) {
+      const every = Math.max(1, Math.floor(rollingCountTimeout / Math.max(1, bucketCount)));
+      this.timer = setInterval(this.rotateListener, every);
+      // Unref'd: rotation is an infinite periodic timer and must never be the reason a
+      // process stays alive. Nothing observable waits on it — a caller that needs
+      // deterministic rotation injects `rotateBucketController`.
+      (this.timer as unknown as { unref?: () => void }).unref?.();
+    }
+  }
+
+  /** Newest bucket first, which is the order opossum's `status.window` is documented in. */
+  get window(): OpossumBucket[] {
+    return this.buckets;
+  }
+
+  get current(): OpossumBucket {
+    return this.buckets[0] as OpossumBucket;
+  }
+
+  increment(key: keyof OpossumBucket, latencyMs?: number): void {
+    const bucket = this.current;
+    const value = bucket[key];
+    if (typeof value === "number") (bucket[key] as number) = value + 1;
+    if (latencyMs !== undefined) {
+      bucket.latencyTimes.push(latencyMs);
+      const total = bucket.latencyTimes.reduce((a, b) => a + b, 0);
+      bucket.latencyMean = total / bucket.latencyTimes.length;
+    }
+  }
+
+  rotate(): void {
+    this.buckets.pop();
+    this.buckets.unshift(emptyBucket());
+    this.emitter.emit("rollingCounts", this.stats());
+  }
+
+  /** Aggregate across the window, which is what opossum's `stats` reports. */
+  stats(): OpossumStats {
+    const total = emptyBucket() as unknown as Record<string, number>;
+    let latencyCount = 0;
+    let latencySum = 0;
+    for (const b of this.buckets) {
+      for (const [k, v] of Object.entries(b)) {
+        if (typeof v === "number" && k !== "latencyMean") {
+          total[k] = (total[k] ?? 0) + v;
+        }
+      }
+      latencyCount += b.latencyTimes.length;
+      latencySum += b.latencyTimes.reduce((a, x) => a + x, 0);
+    }
+    return {
+      fires: total.fires ?? 0,
+      successes: total.successes ?? 0,
+      failures: total.failures ?? 0,
+      timeouts: total.timeouts ?? 0,
+      rejects: total.rejects ?? 0,
+      fallbacks: total.fallbacks ?? 0,
+      semaphoreRejections: total.semaphoreRejections ?? 0,
+      cacheHits: total.cacheHits ?? 0,
+      cacheMisses: total.cacheMisses ?? 0,
+      latencyMean: latencyCount === 0 ? 0 : latencySum / latencyCount,
+    };
+  }
+
+  /** opossum detaches the rotate listener while a breaker is disabled. */
+  detach(): void {
+    this.controller?.removeListener("rotate", this.rotateListener);
+  }
+
+  attach(): void {
+    this.controller?.on("rotate", this.rotateListener);
+  }
+
+  shutdown(): void {
+    this.detach();
+    if (this.timer !== undefined) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+  }
+}
+
 export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unknown> {
   private readonly breaker: ResilixBreaker;
   private readonly semaphore: Bulkhead | undefined;
@@ -203,17 +355,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     >
   > &
     OpossumOptions;
-  readonly stats: OpossumStats = {
-    fires: 0,
-    successes: 0,
-    failures: 0,
-    timeouts: 0,
-    rejects: 0,
-    fallbacks: 0,
-    semaphoreRejections: 0,
-    cacheHits: 0,
-    cacheMisses: 0,
-  };
+  private readonly statusWindow: OpossumStatus;
+
+  /** Aggregated over the rolling window, as opossum reports it. */
+  get stats(): OpossumStats {
+    return this.statusWindow.stats();
+  }
 
   static isOurError = isOurError;
 
@@ -230,6 +377,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     }
 
     this.action = action;
+    const rollingCountTimeout = options.rollingCountTimeout ?? 10_000;
     this.options = {
       ...options,
       timeout: options.timeout ?? 10_000,
@@ -249,6 +397,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       this.autoRenew = true;
       this.abortController = new AbortController();
     }
+    this.statusWindow = new OpossumStatus(
+      options.rollingCountBuckets ?? 10,
+      rollingCountTimeout,
+      this.emitter,
+      options.rotateBucketController,
+    );
     this.name = options.name ?? action.name ?? "anonymous";
     this.warmUpUntil =
       options.allowWarmUp === true
@@ -266,8 +420,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     // can never be zero. It is inert anyway unless slowCallRate is turned on.
     const slowCallMs = options.slowCallMs ?? this.timeoutMs ?? 10_000;
 
-    // Likewise `rollingCountTimeout: 0` is legal in opossum but not a valid window age.
-    const rollingCountTimeout = options.rollingCountTimeout ?? 10_000;
+    // `rollingCountTimeout: 0` is legal in opossum but is not a valid window age.
 
     this.breaker = new ResilixBreaker(
       {
@@ -329,8 +482,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     return this.halfOpen;
   }
 
-  get status(): { stats: OpossumStats } {
-    return { stats: this.stats };
+  get status(): { stats: OpossumStats; window: OpossumBucket[] } {
+    // opossum marks the newest bucket with the breaker's state, which its tests read as
+    // `status.window[0].isCircuitBreakerOpen`.
+    this.statusWindow.current.isCircuitBreakerOpen = this.opened;
+    return { stats: this.statusWindow.stats(), window: this.statusWindow.window };
   }
 
   /**
@@ -352,7 +508,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         shutdown: this.shutdown_,
         lastTimerAt: this.lastTimerAt,
       },
-      status: this.stats,
+      status: this.statusWindow.stats(),
     };
   }
 
@@ -377,6 +533,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
    */
   getSignal(): AbortSignal | undefined {
     return this.abortController?.signal as AbortSignal | undefined;
+  }
+
+  /** The abort controller in use, if any. */
+  getAbortController(): { abort: () => void; signal?: unknown } | undefined {
+    return this.abortController;
   }
 
   /** opossum's `fire` with an explicit `this` for the action. */
@@ -414,6 +575,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       clearTimeout(this.halfOpenTimer);
       this.halfOpenTimer = undefined;
     }
+    this.statusWindow.shutdown();
     this.emitter.emit("shutdown");
   }
 
@@ -477,10 +639,14 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
 
   disable(): void {
     this.enabled_ = false;
+    // opossum removes its rotate listener while disabled, and its tests count listeners
+    // on the injected emitter to prove it.
+    this.statusWindow.detach();
   }
 
   enable(): void {
     this.enabled_ = true;
+    this.statusWindow.attach();
   }
 
   fire(...args: TArgs): Promise<TReturn> {
@@ -492,20 +658,20 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       const error = new OpossumError("The circuit has been shutdown.", "ESHUTDOWN");
       return Promise.reject(error) as Promise<TReturn>;
     }
-    this.stats.fires++;
+    this.statusWindow.increment("fires");
     this.emitter.emit("fire", args);
 
     if (!this.enabled_) return (await this.action.apply(context, args)) as TReturn;
 
     if (this.forcedOpen || (!this.forcedClosed && !this.breaker.admit().ok)) {
-      this.stats.rejects++;
+      this.statusWindow.increment("rejects");
       const error = new OpossumError("Breaker is open", "EOPENBREAKER");
       this.emitter.emit("reject", error);
       return this.runFallback(args, error);
     }
 
     if (this.semaphore && !this.semaphore.admit().ok) {
-      this.stats.semaphoreRejections++;
+      this.statusWindow.increment("semaphoreRejections");
       const error = new OpossumError("Semaphore locked", "ESEMLOCKED");
       this.emitter.emit("semaphoreLocked", error);
       this.settle("rejected", 0);
@@ -525,7 +691,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         result = await new Promise<TReturn>((resolve, reject) => {
           const failure = new OpossumError(`Timed out after ${ms}ms`, "ETIMEDOUT");
           timer = setTimeout(() => {
-            this.stats.timeouts++;
+            this.statusWindow.increment("timeouts");
             this.abortController?.abort();
             this.emitter.emit("timeout", failure);
             reject(failure);
@@ -544,7 +710,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         });
       }
 
-      this.stats.successes++;
+      this.statusWindow.increment("successes", elapsed());
       this.settle("success", elapsed());
       this.emitter.emit("success", result, elapsed());
       return result;
@@ -555,11 +721,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       if (verdict === "answered") {
         // errorFilter said this is not a failure. opossum still reports it as a success
         // to its stats and rethrows to the caller.
-        this.stats.successes++;
+        this.statusWindow.increment("successes", elapsed());
         throw error;
       }
 
-      this.stats.failures++;
+      this.statusWindow.increment("failures", elapsed());
       this.emitter.emit("failure", error, elapsed(), args);
       if (this.fallbackFn) return this.runFallback(args, error);
       throw error;
@@ -585,7 +751,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
 
   private async runFallback(args: TArgs, error: unknown): Promise<TReturn> {
     if (!this.fallbackFn) throw error;
-    this.stats.fallbacks++;
+    this.statusWindow.increment("fallbacks");
     const result = (await this.fallbackFn(...args)) as TReturn;
     this.emitter.emit("fallback", result, error);
     return result;
