@@ -75,9 +75,54 @@ for (const file of pages) {
   }
 }
 
+// The reading map cites source lines as `file.ts:123`. Those drift whenever the code moves —
+// the src/ reorg already invalidated three paths elsewhere — so verify each one still names what
+// the map claims it does.
+let citeCount = 0;
+const MAP = "docs/guide/reading-the-code.md";
+const SRC_DIRS = ["core", "policies", "adapters"];
+try {
+  const md = readFileSync(MAP, "utf8");
+  // Citations are written bare — `quantile.ts:24`, not `core/quantile.ts:24` — so resolve the
+  // basename across the source folders. An earlier version required the folder prefix, matched
+  // zero citations, and reported a clean pass on two deliberately planted breaks.
+  const cites = [...md.matchAll(/`([\w.-]+\.ts):(\d+)`/g)];
+  citeCount = cites.length;
+  if (cites.length === 0)
+    problems.push(`${MAP} → no file:line citations matched (checker is inert)`);
+
+  for (const [, file, line] of cites) {
+    let src = null;
+    for (const dir of SRC_DIRS) {
+      try {
+        src = readFileSync(`src/${dir}/${file}`, "utf8").split("\n");
+        break;
+      } catch {
+        /* try the next folder */
+      }
+    }
+    if (!src) {
+      problems.push(`${MAP} → ${file}:${line} (no such file under src/{${SRC_DIRS}})`);
+      continue;
+    }
+    const text = src[Number(line) - 1];
+    if (text === undefined) {
+      problems.push(`${MAP} → ${file}:${line} (file has only ${src.length} lines)`);
+    } else if (!/^\s*(\*|\/\/|\/\*)/.test(text)) {
+      // Every citation points at a comment. An in-range line number is not proof the citation
+      // still lands on the source it names — if the line is now code, it has slid.
+      problems.push(`${MAP} → ${file}:${line} (no longer a comment: ${text.trim().slice(0, 48)})`);
+    }
+  }
+} catch {
+  /* map not present — nothing to check */
+}
+
 if (problems.length) {
   console.error(`✗ ${problems.length} broken link(s):\n`);
   for (const p of problems) console.error(`   ${p}`);
   process.exit(1);
 }
-console.log(`✓ ${pages.length} pages, every internal link and anchor resolves`);
+console.log(
+  `✓ ${pages.length} pages, ${citeCount} source citations — every link, anchor and file:line resolves`,
+);

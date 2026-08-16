@@ -103,6 +103,7 @@ export default defineConfig({
           text: "Integrating",
           items: [
             { text: "Driving policies by hand", link: "/guide/manual-control" },
+            { text: "Reading the code", link: "/guide/reading-the-code" },
             { text: "Telemetry", link: "/guide/telemetry" },
             { text: "Migrating from opossum", link: "/guide/opossum" },
           ],

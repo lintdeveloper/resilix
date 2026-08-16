@@ -97,6 +97,10 @@ run the runtime smoke scripts against the built artifact, which is how a file mo
 two red builds — `dist/fetch.js` had become `dist/adapters/fetch.js` and only the smoke scripts
 imported it by path. `pnpm verify` runs the lot.
 
+New to the codebase? [Reading the code](https://lintdeveloper.github.io/resilix/guide/reading-the-code)
+maps every source file to the paper or chapter behind it, and gives a dependency-ordered path
+through the ~3,500 lines.
+
 Specs live in `docs/specs/` and are written **before** the code they describe — the adaptive
 limiter and the retry/throttling work both gated on theirs. If you are adding a policy, the spec
 comes first, and it should carry the provenance of every default it proposes.
