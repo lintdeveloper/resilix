@@ -385,7 +385,7 @@ const asAction = <A extends unknown[], R>(
 
 export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unknown> {
   private readonly breaker: ResilixBreaker;
-  private readonly semaphore: Bulkhead | undefined;
+  private readonly bulkhead: Bulkhead;
   private readonly emitter = new Emitter();
   private readonly clock: Clock;
   private readonly timeoutMs: number | undefined;
@@ -468,6 +468,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       rollingCountTimeout: options.rollingCountTimeout ?? 10_000,
       rollingCountBuckets: options.rollingCountBuckets ?? 10,
       volumeThreshold: options.volumeThreshold ?? 0,
+      // opossum's default is "effectively unbounded" rather than absent, and its test
+      // asserts the exact value.
+      capacity: options.capacity ?? Number.MAX_SAFE_INTEGER,
     };
 
     if (options.abortController !== undefined) {
@@ -576,8 +579,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       { key: this.name, clock: this.clock },
     );
 
-    this.semaphore =
-      options.capacity === undefined ? undefined : new Bulkhead({ concurrency: options.capacity });
+    this.bulkhead = new Bulkhead({
+      concurrency: options.capacity ?? Number.MAX_SAFE_INTEGER,
+    });
   }
 
   get opened(): boolean {
@@ -664,6 +668,15 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
    */
   getSignal(): AbortSignal | undefined {
     return this.abortController?.signal as AbortSignal | undefined;
+  }
+
+  /**
+   * opossum exposes its semaphore, and its tests read `semaphore.count` — the number of
+   * permits still AVAILABLE, not the number in use.
+   */
+  get semaphore(): { count: number; capacity: number } {
+    const capacity = this.options.capacity ?? Number.MAX_SAFE_INTEGER;
+    return { count: capacity - this.bulkhead.inFlightCount, capacity };
   }
 
   /** The abort controller in use, if any. */
@@ -819,7 +832,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       return this.runFallback(args, error);
     }
 
-    if (this.semaphore && !this.semaphore.admit().ok) {
+    if (!this.bulkhead.admit().ok) {
       this.statusWindow.increment("semaphoreRejections");
       const error = new OpossumError("Semaphore locked", "ESEMLOCKED");
       this.emitter.emit("semaphoreLocked", error);
@@ -831,6 +844,8 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     const elapsed = (): number => Math.max(0, this.clock.now() - started);
 
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // The bulkhead slot is released exactly once, either at timeout or on settle.
+    let released = false;
     try {
       let result: TReturn;
       if (this.timeoutMs === undefined) {
@@ -841,6 +856,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
           const failure = new OpossumError(`Timed out after ${ms}ms`, "ETIMEDOUT");
           timer = setTimeout(() => {
             this.statusWindow.increment("timeouts");
+            // Release the semaphore BEFORE announcing the timeout: opossum's test reads
+            // `semaphore.count` from inside the timeout listener and expects the slot back.
+            if (!released) {
+              released = true;
+              this.bulkhead.settle({ verdict: "timeout", latencyMs: elapsed(), at: 0 });
+            }
             this.abortController?.abort();
             // opossum's timeout event carries the latency and the call arguments, and its
             // tests assert on both.
@@ -862,12 +883,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       }
 
       this.statusWindow.increment("successes", elapsed());
-      this.settle("success", elapsed());
+      this.settle("success", elapsed(), !released);
       this.emitter.emit("success", result, elapsed(), args);
       return result;
     } catch (error) {
       const verdict = this.verdictFor(error, args);
-      this.settle(verdict, elapsed());
+      this.settle(verdict, elapsed(), !released);
 
       if (verdict === "answered") {
         // errorFilter said this is not a failure. opossum still reports it as a success
@@ -894,13 +915,13 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     return verdict === "answered" || verdict === "overload" ? "transient" : verdict;
   }
 
-  private settle(verdict: Verdict, latencyMs: number): void {
+  private settle(verdict: Verdict, latencyMs: number, releaseBulkhead = true): void {
     // During the warm-up window opossum records the call but refuses to open, so early
     // failures on a cold service cannot trip the breaker.
     const effective: Verdict =
       this.warmingUp && (verdict === "transient" || verdict === "timeout") ? "answered" : verdict;
     const obs = { verdict: effective, latencyMs, at: this.clock.now() };
-    this.semaphore?.settle(obs);
+    if (releaseBulkhead) this.bulkhead.settle(obs);
     this.breaker.settle(obs);
   }
 
