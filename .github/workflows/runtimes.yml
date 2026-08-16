@@ -1,0 +1,75 @@
+name: Runtimes
+
+# The README claims resilix "runs on Node, Bun, Deno, Cloudflare Workers and edge". Until this
+# workflow existed that was an assertion, not a fact. It is cheap to verify because the core has
+# no dependencies and touches no Node built-ins — but "should work by construction" is exactly
+# the kind of claim that quietly stops being true.
+#
+# Every job imports the BUILT artifact, not the source, because that is what a consumer gets.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  node:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: import ESM and exercise a breaker
+        run: node scripts/smoke.mjs
+      - name: import CJS
+        run: node scripts/smoke.cjs
+
+  bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: oven-sh/setup-bun@v2
+      - run: bun scripts/smoke.mjs
+
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.x }
+      - run: deno run --allow-read scripts/smoke.mjs
+
+  workers:
+    name: cloudflare workers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # The specific thing being guarded: Workers rejects timers, async I/O and random values in
+      # global scope. cockatiel crashes on `import { retry }` for exactly this reason (their
+      # #105, declined upstream). A global-scope import that survives here is the whole point.
+      - run: npx --yes wrangler@3 deploy --dry-run --outdir /tmp/worker-build scripts/smoke.worker.js

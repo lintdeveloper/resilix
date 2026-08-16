@@ -36,7 +36,7 @@ loop wrong is worse than shipping nothing.
 | ☑ | Uber — *Cinnamon Auto-Tuner: Adaptive Concurrency in the Wild* | 30m | How the inflight limit is auto-tuned from latency + error rate. |
 | ☑ | Envoy — `adaptive_concurrency` filter docs | 20m | The production-tested formula and every default: gradient, `sqrt(limit)` headroom, p90 sampling, minRTT re-measurement at concurrency 3 with 10% jitter. |
 | ☑ | Harchol-Balter — Little's Law + open-vs-closed systems chapters **only** | 45m | `L = λW` is our entire defence against "AWS already does adaptive throttling". Two chapters. Skip the other 500 pages. |
-| ☐ | TCP Vegas — Brakmo & Peterson | 30m | The direct ancestor. Short. |
+| ☑ | TCP Vegas — Brakmo & Peterson | 30m | The direct ancestor. Short. |
 
 **Expected output of Tier 2: DONE** — `docs/specs/adaptive-limiter.md`. Vegas chosen (Uber and
 Netflix both picked it for this problem), every default carries its source, and the two numbers
@@ -44,9 +44,13 @@ that are ours rather than borrowed are labelled as guesses. Five open questions 
 rather than papered over — the most important being that resilix has no timers by constitution,
 so the control loop must be driven by call settlement rather than an interval.
 
-Still outstanding: **TCP Vegas (Brakmo & Peterson)** — everything in the spec is Vegas *as
-implemented* by Netflix and Uber, not from the paper. Read it before tuning alpha/beta away from
-their values.
+TCP Vegas read too. The original is rate-based (`Diff = ExpectedRate − ActualRate`), and Netflix's
+`queueUse` is the same quantity multiplied by BaseRTT — so their alpha/beta are in units of
+"extra requests queued", exactly analogous to Vegas's "extra buffers in the network". That makes
+`3·log10(limit)` a defensible generalisation rather than a different algorithm. It also confirmed
+the baseline decision: BaseRTT is a running minimum and can only go down, so a permanently
+worsened upstream would clamp the limiter forever — which is why the spec takes Uber's covariance
+reset over a plain minimum.
 
 ---
 
@@ -77,6 +81,6 @@ Read anything new they publish.
 ## Progress
 
 - [ ] Tier 1 complete → v0.2 unblocked
-- [~] Tier 2 — spec written; TCP Vegas paper still unread (needed only before re-tuning alpha/beta)
+- [x] Tier 2 complete → v0.3 unblocked (spec at `docs/specs/adaptive-limiter.md`)
 - [ ] Tier 3 complete → v0.5 unblocked
 - [ ] Tier 4 complete → v2.0 unblocked

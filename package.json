@@ -78,7 +78,8 @@
     "release": "changeset publish",
     "ci:version": "changeset version && biome format --write package.json",
     "test:integration": "RESILIX_TEST_DATABASE_URL=${RESILIX_TEST_DATABASE_URL:-postgres://postgres:resilix@localhost:5459/resilix_test} vitest run src/sql-integration.test.ts",
-    "test:compat": "node scripts/opossum-compat.mjs"
+    "test:compat": "node scripts/opossum-compat.mjs",
+    "test:smoke": "pnpm build && node scripts/smoke.mjs && node scripts/smoke.cjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

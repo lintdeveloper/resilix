@@ -70,6 +70,29 @@ Both production systems that solved our exact problem chose Vegas over gradient-
   control algorithm"
 - Netflix ships `VegasLimit` alongside `Gradient2Limit`
 
+**The original formulation** (Brakmo & Peterson, SIGCOMM '94) is rate-based:
+
+```
+BaseRTT      = minimum RTT ever observed
+ExpectedRate = cwnd / BaseRTT
+ActualRate   = bytes sent in the sample / sampleRTT
+Diff         = ExpectedRate − ActualRate
+
+Diff < alpha           -> increase the window linearly
+Diff > beta            -> decrease the window linearly
+alpha < Diff < beta    -> leave it alone
+```
+
+`alpha` and `beta` are physical: the connection "needs to be occupying at least 3 extra buffers
+in the network" and "should occupy no more than 6 extra buffers".
+
+Netflix's form is the same quantity in different units. Since
+`Diff = cwnd·(1/BaseRTT − 1/RTT) = (cwnd/BaseRTT)·(1 − BaseRTT/RTT)`, multiplying by `BaseRTT`
+gives `cwnd·(1 − BaseRTT/RTT)` — which is exactly their `queueUse`. So **Netflix's alpha/beta are
+in units of "extra requests queued at the upstream"**, directly analogous to Vegas's extra
+buffers. That equivalence is why their `3·log10(limit)` / `6·log10(limit)` is a defensible
+generalisation of the classic constants rather than a different algorithm.
+
 The estimator, from Netflix's `VegasLimit`:
 
 ```
@@ -176,6 +199,13 @@ The gradient is meaningless without a no-load reference. Three named approaches:
 | Netflix Vegas | `rtt_noload` | running minimum, with a periodic probe (`probeMultiplier = 30`) |
 | Envoy | `minRTT` | re-measured by pinning concurrency to 3 for a sampling window |
 | Uber | `targetLatency` | reset only when covariance says throughput actually improves |
+
+**BaseRTT staleness is Vegas's known weak point**, and it is why this choice matters. BaseRTT is
+a running minimum, so it can only ever go down. If the upstream's true baseline worsens
+permanently — a deploy, a region failover, a noisy neighbour — a minimum-based baseline never
+recovers, `Diff` stays large, and the limiter clamps forever against an upstream that is now
+perfectly healthy at its new normal. Classic Vegas tolerates this because network paths are
+comparatively stable; a third-party API is not.
 
 **Chosen: Uber's.** Envoy's is the most rigorous and the most hostile — it deliberately causes
 errors, and their docs admit it "may cause noticeable increases in 503 responses". That is
@@ -309,5 +339,5 @@ Uber, *Cinnamon: Using Century Old Tech to Build a Mean Load Shedder*, *PID Cont
 Cinnamon*, *Cinnamon Auto-Tuner: Adaptive Concurrency in the Wild* · failsafe-go adaptive
 limiter and load-limiting pages · Little's Law via Netflix's own framing.
 
-**Not read:** the original Brakmo & Peterson TCP Vegas paper. Everything above is Vegas *as
-implemented* by Netflix and Uber. Read the paper before tuning alpha/beta away from their values.
+Brakmo & Peterson, *TCP Vegas: New Techniques for Congestion Detection and Avoidance*
+(SIGCOMM '94), via the primary formulation in *TCP Congestion Control: A Systems Approach*, ch. 5.

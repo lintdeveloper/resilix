@@ -3,7 +3,12 @@
 **Load limiting for JavaScript.** A circuit breaker that trips when your upstream is *slow but not
 failing* — and that knows a `404` is an answer, not an outage.
 
-Zero dependencies. No I/O. Pure state machines. Runs on Node, Bun, Deno, Cloudflare Workers and edge.
+Zero dependencies. No I/O. Pure state machines.
+
+Runs on Node 18/20/22/24, Bun, Deno and Cloudflare Workers — [verified in CI on every
+push](.github/workflows/runtimes.yml) by importing the built artifact and driving a real breaker,
+not asserted. The Workers job specifically proves a module-scope import is side-effect free,
+which is the thing that crashes some libraries at the edge.
 
 ```bash
 npm i resilix
