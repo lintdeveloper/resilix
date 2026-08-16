@@ -125,6 +125,8 @@ export interface OpossumBucket {
 }
 
 export interface OpossumStats {
+  /** Keyed by percentile, as opossum reports them. Zero when no samples yet. */
+  percentiles?: Record<string, number>;
   latencyMean?: number;
   fires: number;
   successes: number;
@@ -228,6 +230,8 @@ const emptyBucket = (): OpossumBucket => ({
  */
 class OpossumStatus {
   readonly buckets: OpossumBucket[];
+  /** Accepted and reported for compatibility; resilix does not compute percentiles. */
+  readonly rollingPercentilesEnabled: boolean;
   private readonly emitter: Emitter;
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly controller: OpossumOptions["rotateBucketController"];
@@ -240,7 +244,9 @@ class OpossumStatus {
     rollingCountTimeout: number,
     emitter: Emitter,
     controller?: OpossumOptions["rotateBucketController"],
+    rollingPercentilesEnabled = true,
   ) {
+    this.rollingPercentilesEnabled = rollingPercentilesEnabled;
     this.buckets = Array.from({ length: Math.max(1, bucketCount) }, emptyBucket);
     this.emitter = emitter;
     this.controller = controller;
@@ -321,7 +327,19 @@ class OpossumStatus {
       latencyCount += b.latencyTimes.length;
       latencySum += b.latencyTimes.reduce((a, x) => a + x, 0);
     }
+    const sorted = this.buckets.flatMap((b) => b.latencyTimes).sort((a, b) => a - b);
+    const at = (q: number): number => {
+      if (sorted.length === 0) return 0;
+      const idx = Math.min(sorted.length - 1, Math.floor(q * sorted.length));
+      return sorted[idx] ?? 0;
+    };
+    const percentiles: Record<string, number> = {};
+    for (const q of [0, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.995, 1]) {
+      percentiles[String(q)] = at(q);
+    }
+
     return {
+      percentiles,
       fires: total.fires ?? 0,
       successes: total.successes ?? 0,
       failures: total.failures ?? 0,
@@ -461,6 +479,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
       rollingCountTimeout,
       this.emitter,
       options.rotateBucketController,
+      options.rollingPercentilesEnabled ?? true,
     );
     this.name = options.name ?? (typeof action === "function" ? action.name : "") ?? "anonymous";
     this.warmUpUntil =

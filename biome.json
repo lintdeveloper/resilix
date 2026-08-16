@@ -41,11 +41,18 @@
     "lineWidth": 100
   },
   "files": {
-    "ignore": ["dist", "node_modules", "coverage"]
+    "ignore": [
+      "dist",
+      "node_modules",
+      "coverage",
+      ".opossum-compat"
+    ]
   },
   "overrides": [
     {
-      "include": ["src/**/*.test.ts"],
+      "include": [
+        "src/**/*.test.ts"
+      ],
       "linter": {
         "rules": {
           "style": {
