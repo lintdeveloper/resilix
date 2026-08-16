@@ -5,8 +5,9 @@ failing* — and that knows a `404` is an answer, not an outage.
 
 Zero dependencies. No I/O. Pure state machines.
 
-Runs on Node 18/20/22/24, Bun, Deno and Cloudflare Workers — verified in CI on every push
-(`.github/workflows/runtimes.yml`) by importing the built artifact and driving a real breaker,
+**Documentation: [lintdeveloper.github.io/resilix](https://lintdeveloper.github.io/resilix/)**
+
+Runs on Node 18/20/22/24, Bun, Deno and Cloudflare Workers — [verified in CI on every push](.github/workflows/runtimes.yml) by importing the built artifact and driving a real breaker,
 not asserted. The Workers job specifically proves a module-scope import is side-effect free,
 which is the thing that crashes some libraries at the edge.
 
@@ -14,6 +15,7 @@ which is the thing that crashes some libraries at the edge.
 npm i resilix
 ```
 
+<!-- #region why -->
 ## Why this exists
 
 JavaScript has fault handling. Its **load limiting** is locked inside two RPC clients — hedging and
@@ -32,6 +34,9 @@ upstream returned `4xx`. Any breaker whose failure predicate is *"did the promis
 because customers submitted bad input. resilix classifies outcomes into verdicts, so a `4xx` is
 `answered` — healthy — while a `429` is `overload`: not a failure, but still a load signal.
 
+<!-- #endregion why -->
+
+<!-- #region quickstart -->
 ## Quick start
 
 ```ts
@@ -112,6 +117,9 @@ Every mapping was verified against **real errors** from `pg` 8.23 and Prisma 7.9
 Run `pnpm test:integration` with a Postgres to re-verify after a driver upgrade; the captured
 fixtures alone would keep passing if a shape changed.
 
+<!-- #endregion quickstart -->
+
+<!-- #region verdicts -->
 ## The verdict model
 
 One settled call, read differently by each policy. This table is the design:
@@ -129,6 +137,9 @@ One settled call, read differently by each policy. This table is the design:
 That last row matters more than it looks. Our own shedding must never be recorded as evidence about
 the upstream — without it, an open breaker observes its own rejections and can never close.
 
+<!-- #endregion verdicts -->
+
+<!-- #region limiter -->
 ## Adaptive concurrency limiting
 
 The part nothing else in npm has, and the reason this library exists.
@@ -167,6 +178,9 @@ limit during a lull. And because the control loop runs on call settlement rather
 (resilix has no timers), `staleAfterMs` exists to stop a limiter clamped during an incident from
 staying clamped forever once traffic goes quiet.
 
+<!-- #endregion limiter -->
+
+<!-- #region retry -->
 ## Retry, budgets and throttling
 
 ```ts
@@ -211,6 +225,9 @@ cannot see is not a deadline.
 Every one arrives as `RejectedError.reason` and on `onRejection`, so "why was I refused?" always
 has an answer.
 
+<!-- #endregion retry -->
+
+<!-- #region hedging -->
 ## Hedging, criticality and fairness
 
 ```ts
@@ -243,6 +260,9 @@ spike saw over half of all requests throttled while user-initiated availability 
 `admitted / activeTenants` is shed first, and heaviness decays so nobody is punished forever. No
 number to configure and nothing to keep up to date.
 
+<!-- #endregion hedging -->
+
+<!-- #region breaker-caveat -->
 ## When a circuit breaker is the wrong tool
 
 Worth saying plainly, because it is the best-known criticism of the pattern and it is correct.
@@ -265,6 +285,9 @@ Three practical consequences:
 - **A breaker is right for a homogeneous upstream** that is wholly up or wholly down. That is
   the case resilix was built for: one provider, one endpoint, degrading as a unit.
 
+<!-- #endregion breaker-caveat -->
+
+<!-- #region trip-conditions -->
 ## Three trip conditions
 
 ```
@@ -284,6 +307,9 @@ never trips — every caller eats the full timeout.
 **Half-open admits exactly one probe** by default, so recovery cannot stampede an upstream that is by
 definition fragile. It self-heals if a probe is admitted and never settles.
 
+<!-- #endregion trip-conditions -->
+
+<!-- #region manual -->
 ## You can own the call
 
 `execute()` is convenience. Every policy is a synchronous state machine, so you can drive it directly
@@ -302,6 +328,9 @@ try {
 }
 ```
 
+<!-- #endregion manual -->
+
+<!-- #region commitments -->
 ## Design commitments
 
 - **Zero runtime dependencies, no I/O in core.** A policy decision costs microseconds and cannot
@@ -319,6 +348,8 @@ try {
   **origin-safe**: every serialised time is relative, and idle time between processes is
   accounted for, so a rehydrated window ages correctly instead of coming back looking fresh.
 
+<!-- #endregion commitments -->
+
 ## Status
 
 Pre-release.
@@ -326,15 +357,16 @@ Pre-release.
 - **v0.1** classifier · circuit breaker · dual-bound window · key registry · pipeline executor
 - **v0.2** `resilix/otel` · `resilix/compat/opossum` · bulkhead · observers
 - **v0.3** adaptive concurrency limiting · P² streaming quantiles · proportional shedding —
-  built to `docs/specs/adaptive-limiter.md`
+  built to [`docs/specs/adaptive-limiter.md`](docs/specs/adaptive-limiter.md)
 - **v0.4** retry with full jitter · shared retry budgets · SRE adaptive throttler · token-bucket rate limiter
 - **v0.5** hedging with cancellation · criticality buckets · tenant fairness
 
 What is still ahead — adaptive throttling, execution budgets, hedging, criticality and
-per-tenant fairness, then inbound protection — is in `docs/resilix-architecture.pdf`, along with
+per-tenant fairness, then inbound protection — is in [`docs/public/resilix-architecture.pdf`](docs/public/resilix-architecture.pdf), along with
 the C4 architecture and the reasoning behind every default.
 
 
+<!-- #region otel -->
 ## Telemetry (`resilix/otel`)
 
 Built in, not a plugin. Under 1% of opossum users instrument their breakers, which means
@@ -362,6 +394,9 @@ instrument.observeGauges(api);   // pull-based gauges
 meter, `otel()` is a no-op, so tests need no OTel install. Observers are dispatched through a
 swallowing wrapper: a failing exporter can neither influence nor break an admission decision.
 
+<!-- #endregion otel -->
+
+<!-- #region opossum -->
 ## Migrating from opossum (`resilix/compat/opossum`)
 
 > **Scope of the claim, measured:** the shim passes **362 of 362** of opossum's own test suite,
@@ -407,11 +442,16 @@ Opt back into the resilix behaviour when you're ready:
 new CircuitBreaker(action, { slowCallMs: 3000, slowCallRate: 0.5, consecutiveBackstop: 10 });
 ```
 
+<!-- #endregion opossum -->
+
 ## Documentation
+
+The full docs are at **[lintdeveloper.github.io/resilix](https://lintdeveloper.github.io/resilix/)**
+— the same content as this README, organised into a guide, plus the decisions and specs below.
 
 | | |
 |---|---|
-| [`docs/decisions.md`](docs/decisions.md) | why resilix is shaped the way it is — every `ADR-00N` comment in the source resolves here |
+| [`docs/decisions.md`](docs/decisions.md) | why resilix is shaped the way it is — every `ADR-00N` comment in the source resolves here, at `/decisions#adr-007` |
 | [`docs/specs/`](docs/specs/) | the design specs, written before the code and carrying every default's provenance |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | the one rule that gets broken most, and how the build now enforces it |
 | [`READING.md`](READING.md) | the sources behind each version, and what remains unread |

@@ -4,3 +4,7 @@ coverage
 *.log
 .DS_Store
 .opossum-compat
+
+# VitePress
+docs/.vitepress/cache
+docs/.vitepress/dist

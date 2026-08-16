@@ -1,7 +1,7 @@
 {
   "name": "resilix",
   "version": "0.1.0",
-  "description": "Load limiting for JavaScript \u2014 a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
+  "description": "Load limiting for JavaScript — a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
   "keywords": [
     "circuit-breaker",
     "load-shedding",
@@ -76,6 +76,10 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:check": "vitepress build docs && node scripts/check-links.mjs",
+    "docs:preview": "vitepress preview docs",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -102,6 +106,7 @@
     "publint": "^0.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
+    "vitepress": "^1.6.4",
     "vitest": "^2.1.8"
   },
   "packageManager": "pnpm@9.14.2",

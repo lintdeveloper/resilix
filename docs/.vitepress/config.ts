@@ -1,0 +1,124 @@
+import { defineConfig } from "vitepress";
+
+// The site is deployed to https://lintdeveloper.github.io/resilix/, so every asset and link
+// needs the repo name as a prefix. Getting this wrong produces a page that loads locally and
+// 404s its own CSS in production, which is the classic Pages failure.
+const base = "/resilix/";
+
+export default defineConfig({
+  base,
+  lang: "en-GB",
+  title: "resilix",
+  description:
+    "Load limiting for JavaScript. A circuit breaker that trips when your upstream is slow but not failing.",
+  cleanUrls: true,
+
+  // A broken link is a build failure, not a warning. Most of this site is assembled by
+  // including regions of the root README, and a moved heading would otherwise rot silently.
+  // This catches missing PAGES only, not missing #anchors — `pnpm docs:check` does those.
+  ignoreDeadLinks: false,
+
+  markdown: {
+    anchor: {
+      // ADR headings read "ADR-007 · Our own rejections are never upstream evidence", which
+      // slugifies to a 60-character URL containing a raw `·` and breaks the moment anyone
+      // rewords the title. These anchors are cited from source comments and from other pages,
+      // so they are pinned to the number, which is the part that never changes.
+      slugify: (str: string) => {
+        const adr = /^\s*ADR-(\d+)/.exec(str);
+        if (adr) return `adr-${adr[1]}`;
+        return encodeURIComponent(
+          String(str)
+            .trim()
+            .replace(/[\s#$&+,/:;=?@[\]^`{|}~"'()!*<>\\.]+/g, "-")
+            .replace(/-{2,}/g, "-")
+            .replace(/^-|-$/g, "")
+            .toLowerCase(),
+        );
+      },
+    },
+  },
+
+  head: [
+    ["link", { rel: "icon", href: `${base}favicon.svg`, type: "image/svg+xml" }],
+    ["meta", { name: "theme-color", content: "#3b6fd4" }],
+    ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:title", content: "resilix — load limiting for JavaScript" }],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "Adaptive concurrency limiting, slow-call circuit breaking, hedging and retry budgets. Zero dependencies, no I/O.",
+      },
+    ],
+  ],
+
+  themeConfig: {
+    siteTitle: "resilix",
+    outline: [2, 3],
+
+    nav: [
+      { text: "Guide", link: "/guide/", activeMatch: "/guide/" },
+      { text: "Decisions", link: "/decisions", activeMatch: "/decisions" },
+      { text: "Specs", link: "/specs/", activeMatch: "/specs/" },
+      { text: "Roadmap", link: "/guide/roadmap" },
+      {
+        text: "npm",
+        link: "https://www.npmjs.com/package/resilix",
+      },
+    ],
+
+    sidebar: {
+      "/": [
+        {
+          text: "Introduction",
+          items: [
+            { text: "What resilix is", link: "/guide/" },
+            { text: "Getting started", link: "/guide/getting-started" },
+            { text: "The verdict model", link: "/guide/verdicts" },
+          ],
+        },
+        {
+          text: "Policies",
+          items: [
+            { text: "Circuit breaker", link: "/guide/breaker" },
+            { text: "Adaptive limiter", link: "/guide/limiter" },
+            { text: "Retry, budgets, throttling", link: "/guide/retry" },
+            { text: "Hedging, criticality, fairness", link: "/guide/hedging" },
+          ],
+        },
+        {
+          text: "Integrating",
+          items: [
+            { text: "Driving policies by hand", link: "/guide/manual-control" },
+            { text: "Telemetry", link: "/guide/telemetry" },
+            { text: "Migrating from opossum", link: "/guide/opossum" },
+          ],
+        },
+        {
+          text: "Reference",
+          items: [
+            { text: "Design decisions", link: "/decisions" },
+            { text: "Specs", link: "/specs/" },
+            { text: "Roadmap", link: "/guide/roadmap" },
+          ],
+        },
+      ],
+    },
+
+    socialLinks: [{ icon: "github", link: "https://github.com/lintdeveloper/resilix" }],
+
+    search: { provider: "local" },
+
+    editLink: {
+      pattern: "https://github.com/lintdeveloper/resilix/edit/main/docs/:path",
+      text: "Edit this page on GitHub",
+    },
+
+    footer: {
+      message: "MIT licensed. Zero runtime dependencies.",
+      copyright: "© Musa Musa",
+    },
+  },
+});

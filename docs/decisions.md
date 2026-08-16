@@ -107,9 +107,9 @@ When resilix refuses a call, nothing was learned about the upstream — it was n
 This has been violated five times, in the breaker, throttler, limiter, fairness and rate limiter.
 Every one had the same shape: the two halves ran at *different points in the lifecycle*, and a
 rejection slipped into the gap. Details and the six-question checklist are in
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/lintdeveloper/resilix/blob/main/CONTRIBUTING.md).
 
-It is now enforced by `src/conformance.test.ts`, which runs every policy through one invariant —
+It is now enforced by `src/scenarios/conformance.test.ts`, which runs every policy through one invariant —
 *`admit()` followed by `settle(rejected)` must be indistinguishable from never having called* —
 and fails the build if a new policy is not registered.
 

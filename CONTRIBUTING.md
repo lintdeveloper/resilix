@@ -12,7 +12,7 @@ opposite directions:
 - **As bookkeeping: always delivered.** A policy that reserved a slot must still release it,
   because an inner policy may have refused *after* this one admitted.
 
-This has been violated twice, both times by someone who knew the rule:
+This has been violated five times, every time by someone who knew the rule:
 
 | Policy | The violation | What it cost |
 |---|---|---|
@@ -26,7 +26,7 @@ All five had the same shape: **the two halves ran at different points in the lif
 rejection slipped into the gap. The last one was found by the conformance suite on its first
 run, in code that had already been reviewed by eye.
 
-**You do not have to remember this.** `src/adr-007.conformance.test.ts` runs every policy
+**You do not have to remember this.** `src/scenarios/conformance.test.ts` runs every policy
 through these checks automatically, and a completeness test fails the build if a new policy is
 not registered for conformance. The questions below are why those checks exist, and what to do
 when one fails.
