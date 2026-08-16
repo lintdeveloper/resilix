@@ -48,7 +48,9 @@ export type RejectionReason =
   | "circuit-half-open-probe-in-flight"
   | "bulkhead-full"
   | "limiter-full"
-  | "throttled";
+  | "throttled"
+  | "rate-limited"
+  | "budget-exceeded";
 
 /** A policy's answer to "may this execution proceed right now?". */
 export type Admission =
@@ -92,6 +94,8 @@ export interface PolicyEnv {
   readonly clock: Clock;
   /** Set by the pipeline. Already wrapped so throws cannot escape into the control path. */
   readonly observer?: PolicyObserver;
+  /** Injected randomness, for policies that shed probabilistically. Seeded in tests. */
+  readonly random?: RandomLike;
 }
 
 /**
@@ -112,6 +116,11 @@ export interface PolicyStateChangeEvent {
 /** The slice of the observer surface a policy is allowed to emit on. */
 export interface PolicyObserver {
   onStateChange?(event: PolicyStateChangeEvent): void;
+}
+
+/** Structural shape of `Random`, declared here so types.ts depends on no other module. */
+export interface RandomLike {
+  next(): number;
 }
 
 /** Policies are declared as factories so the registry can build one set per key. */

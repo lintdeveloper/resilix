@@ -1,7 +1,12 @@
+import { Backoff } from "./backoff.ts";
+import type { BackoffOptions } from "./backoff.ts";
+import type { RetryBudget } from "./budget.ts";
 import { classifyHttp, retryAfterFrom } from "./classify.ts";
 import { systemClock } from "./clock.ts";
 import { safeObserver } from "./observer.ts";
 import type { Observer } from "./observer.ts";
+import { systemRandom } from "./random.ts";
+import type { Random } from "./random.ts";
 import { KeyRegistry } from "./registry.ts";
 import type {
   Clock,
@@ -26,6 +31,33 @@ export class RejectedError extends Error {
     this.reason = reason;
     this.retryAfterMs = retryAfterMs;
   }
+}
+
+/**
+ * Retry configuration.
+ *
+ * Retry lives on the pipeline rather than in `policies`, for the same reason `timeoutMs` does
+ * (ADR-013): it must WRAP and re-invoke the call, which a synchronous admit/settle policy
+ * cannot express. It is the outermost thing in the stack, so each attempt re-consults the
+ * breaker, limiter and throttler.
+ */
+export interface RetryOptions extends BackoffOptions {
+  /**
+   * Total attempts including the first. Default 3 — Google SRE: "up to three attempts".
+   * Set to 1 to disable retrying while keeping the rest of the pipeline.
+   */
+  maxAttempts?: number;
+  /**
+   * Shared budget bounding retries as a fraction of requests. Strongly recommended: without it
+   * a degradation turns into a 3x load spike exactly when the upstream can least absorb one.
+   * The SAME instance should be passed to every pipeline in the process.
+   */
+  budget?: RetryBudget;
+  /**
+   * Honour an upstream's `Retry-After` in preference to the computed backoff. Default true.
+   * A provider telling you when to come back is better information than any backoff curve.
+   */
+  respectRetryAfter?: boolean;
 }
 
 /** Thrown when the pipeline's own deadline elapses. Classified as `timeout`. */
@@ -75,6 +107,10 @@ export interface PipelineOptions<I> {
   /** Deadline enforced by the pipeline itself. Creates an AbortController lazily, per call. */
   timeoutMs?: number;
   clock?: Clock;
+  /** Injected randomness, for jitter. Seeded in tests; `Math.random` by default. */
+  random?: Random;
+  /** Re-attempt failed calls. Absent means no retrying. */
+  retry?: RetryOptions;
   registry?: { maxKeys?: number; ttlMs?: number };
   /**
    * Passive observers — metrics, logs, traces. Dispatched through a swallowing wrapper, so
@@ -100,6 +136,14 @@ export class Pipeline<I = unknown> {
   private readonly classify: (outcome: unknown) => Verdict;
   private readonly timeoutMs: number | undefined;
   private readonly clock: Clock;
+  private readonly random: Random;
+  private readonly retryOptions: RetryOptions | undefined;
+  /**
+   * The most recent `Retry-After` an upstream sent, in ms. Set when an `overload` outcome
+   * settles and consumed by the next retry, which prefers it over the computed backoff — a
+   * provider telling you when to come back is better information than any curve.
+   */
+  private lastRetryAfterMs: number | undefined;
   private readonly observer: Required<Observer>;
   private readonly registry: KeyRegistry<Policy[]>;
 
@@ -111,12 +155,15 @@ export class Pipeline<I = unknown> {
     this.classify = options.classify ?? classifyHttp;
     this.timeoutMs = options.timeoutMs;
     this.clock = options.clock ?? systemClock;
+    this.random = options.random ?? systemRandom;
+    this.retryOptions = options.retry;
     this.observer = safeObserver(options.observers ?? []);
 
     const clock = this.clock;
     const observer = this.observer;
+    const random = this.random;
     this.registry = new KeyRegistry<Policy[]>({
-      factory: (key) => options.policies.map((make) => make({ key, clock, observer })),
+      factory: (key) => options.policies.map((make) => make({ key, clock, observer, random })),
       maxKeys: options.registry?.maxKeys,
       ttlMs: options.registry?.ttlMs,
       clock,
@@ -195,6 +242,7 @@ export class Pipeline<I = unknown> {
           verdict === "overload"
             ? retryAfterFrom(outcome, this.clock.wallNow?.() ?? this.clock.now())
             : undefined;
+        this.lastRetryAfterMs = retryAfterMs;
         settleVerdict(verdict, latencyMs, retryAfterMs);
       },
     };
@@ -208,6 +256,87 @@ export class Pipeline<I = unknown> {
    * without promise plumbing, and drivable by hand via `gate()`.
    */
   async execute<R>(input: I, fn: (ctx: ExecutionContext) => R | Promise<R>): Promise<R> {
+    if (this.retryOptions === undefined) return this.attempt(input, fn);
+    return this.executeWithRetry(input, fn, this.retryOptions);
+  }
+
+  /**
+   * Retry sits OUTSIDE everything else, so each attempt re-consults the breaker, limiter and
+   * throttler. That ordering is deliberate: a burst of retries inside a breaker would count as
+   * many separate failures, whereas outside it is the budget — not the breaker's ignorance —
+   * that bounds amplification.
+   */
+  private async executeWithRetry<R>(
+    input: I,
+    fn: (ctx: ExecutionContext) => R | Promise<R>,
+    options: RetryOptions,
+  ): Promise<R> {
+    const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+    const backoff = new Backoff(options, this.random);
+    options.budget?.recordRequest();
+
+    // `timeoutMs` bounds the WHOLE sequence, not each attempt.
+    //
+    // Most libraries apply it per attempt, which means a caller who asked for 30ms can wait
+    // maxAttempts x (30ms + backoff) and has no way to express what they actually wanted. A
+    // deadline the caller cannot see is not a deadline. Retrying past it is also pointless:
+    // whoever is waiting has already given up.
+    const deadline = this.timeoutMs === undefined ? undefined : this.clock.now() + this.timeoutMs;
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        // Spend budget BEFORE waiting. A retry that the budget will refuse should not first
+        // burn the caller's deadline sleeping.
+        if (options.budget && !options.budget.tryConsume()) {
+          this.observer.onRejection({
+            key: this.keyOf(input),
+            reason: "budget-exceeded",
+            policy: "retry",
+          });
+          break;
+        }
+        const upstreamAsked =
+          options.respectRetryAfter !== false ? this.lastRetryAfterMs : undefined;
+        const delay = upstreamAsked ?? backoff.delayFor(attempt);
+
+        // Stop if the wait alone would outlive the deadline. This also settles the spec's open
+        // question about a `Retry-After` longer than the caller's timeout: fail now rather than
+        // sleep through a deadline already promised to someone.
+        if (deadline !== undefined && this.clock.now() + delay >= deadline) break;
+        if (delay > 0) await this.sleep(delay);
+        if (deadline !== undefined && this.clock.now() >= deadline) break;
+      }
+
+      try {
+        return await this.attempt(input, fn);
+      } catch (error) {
+        lastError = error;
+        if (!this.isRetryable(error)) throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * Whether a failure is worth another attempt. The verdict model answers this directly, which
+   * is the payoff for having it: `answered` means the upstream worked and the CALLER was wrong,
+   * so no number of retries will change the outcome, and `rejected` means we refused it
+   * ourselves. A boolean-predicate library retries both by default.
+   */
+  private isRetryable(error: unknown): boolean {
+    const verdict = this.classify(error);
+    return verdict === "transient" || verdict === "timeout" || verdict === "overload";
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      (timer as unknown as { unref?: () => void }).unref?.();
+    });
+  }
+
+  private async attempt<R>(input: I, fn: (ctx: ExecutionContext) => R | Promise<R>): Promise<R> {
     const gate = this.gate(input);
     if (!gate.ok)
       throw new RejectedError(gate.key, gate.reason ?? "circuit-open", gate.retryAfterMs);

@@ -47,3 +47,14 @@ export type {
 } from "./limiter.ts";
 export { P2Quantile, RingQuantile } from "./quantile.ts";
 export type { Quantile } from "./quantile.ts";
+export { Backoff } from "./backoff.ts";
+export type { BackoffOptions, JitterStrategy } from "./backoff.ts";
+export { budget, RetryBudget } from "./budget.ts";
+export type { BudgetOptions } from "./budget.ts";
+export { constantRandom, FakeRandom, systemRandom } from "./random.ts";
+export type { Random } from "./random.ts";
+export { rateLimit, RateLimiter } from "./rate-limit.ts";
+export type { RateLimitOptions, RateLimitSnapshot } from "./rate-limit.ts";
+export { AdaptiveThrottler, throttler } from "./throttler.ts";
+export type { ThrottlerOptions, ThrottlerSnapshot } from "./throttler.ts";
+export type { RetryOptions } from "./pipeline.ts";
