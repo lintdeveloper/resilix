@@ -4,8 +4,9 @@ hero:
   name: resilix
   text: Load limiting for JavaScript
   tagline: >-
-    A circuit breaker that trips when your upstream is slow but not failing — and that knows a
-    404 is an answer, not an outage. Zero dependencies, no I/O, pure state machines.
+    A dependency that has slowed to a crawl is still "up". resilix measures latency, works out how
+    much concurrency your upstream can actually absorb, and sheds the rest — before the errors
+    start. Zero dependencies, no I/O.
   actions:
     - theme: brand
       text: Get started

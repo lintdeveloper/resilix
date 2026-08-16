@@ -17,7 +17,7 @@ export default defineConfig({
   lang: "en-GB",
   title: "resilix",
   description:
-    "Load limiting for JavaScript. A circuit breaker that trips when your upstream is slow but not failing.",
+    "Load limiting for JavaScript: adaptive concurrency limiting and slow-call circuit breaking. Sheds load when an upstream slows, not just when it errors.",
   cleanUrls: true,
 
   // Operational notes for this repo, not documentation for users of the library. It lives in
@@ -60,7 +60,7 @@ export default defineConfig({
       {
         property: "og:description",
         content:
-          "Adaptive concurrency limiting, slow-call circuit breaking, hedging and retry budgets. Zero dependencies, no I/O.",
+          'A dependency that has slowed to a crawl is still "up". resilix sheds load from latency — adaptive concurrency limiting, slow-call circuit breaking, hedging and retry budgets. Zero dependencies.',
       },
     ],
   ],

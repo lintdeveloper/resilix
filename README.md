@@ -1,9 +1,11 @@
 # resilix
 
-**Load limiting for JavaScript.** A circuit breaker that trips when your upstream is *slow but not
-failing* — and that knows a `404` is an answer, not an outage.
+**Load limiting for JavaScript.**
 
-Zero dependencies. No I/O. Pure state machines.
+A dependency that has slowed to a crawl is still "up". resilix measures latency, works out how
+much concurrency your upstream can actually absorb, and sheds the rest — before the errors start.
+
+Zero dependencies. No I/O.
 
 **Documentation: [lintdeveloper.github.io/resilix](https://lintdeveloper.github.io/resilix/)**
 
