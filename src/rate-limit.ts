@@ -83,8 +83,20 @@ export class RateLimiter implements Policy<RateLimitSnapshot> {
     return refuse("rate-limited", waitMs);
   }
 
-  /** Nothing to do: a token bucket bounds arrivals, and cares nothing for how calls turn out. */
-  settle(_obs: Observation): void {}
+  /**
+   * Refund the token when the call never happened.
+   *
+   * A token bucket bounds ARRIVALS at the upstream, so it does not care how a call turned out —
+   * with one exception. If an inner policy refused the call, there was no arrival, and keeping
+   * the token would silently lower the effective rate below the configured one: you would be
+   * paying for calls you never made. This is ADR-007 item 2, and it was found by the
+   * conformance suite on its first run rather than by anyone reading the code.
+   */
+  settle(obs: Observation): void {
+    if (obs.verdict !== "rejected") return;
+    this.refill();
+    this.tokens = Math.min(this.capacity, this.tokens + 1);
+  }
 
   metrics(): Record<string, number> {
     return { tokens: this.available, capacity: this.capacity, limit: this.limit };

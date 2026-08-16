@@ -18,9 +18,18 @@ This has been violated twice, both times by someone who knew the rule:
 |---|---|---|
 | `breaker` | an open breaker recorded its own rejections in its window | it could never close — a self-sustaining outage |
 | `throttler` | counted a request at `admit()` but an accept at `settle()`, so an inner policy's refusal looked like the upstream declining | pinned at its 0.9 ceiling against a *healthy* upstream — 60,000 requests, 2,802 accepts, 54,103 calls shed for nothing |
+| `limiter` | raised its growth tether at `admit()` | grew the limit on concurrency the upstream never absorbed |
+| fairness | billed a tenant at `admit()` | a feedback loop inside the fairness mechanism — usage is what gets you shed |
+| `rateLimit` | spent a token at `admit()` and never refunded it | the effective rate drifted below the configured one; you paid for calls you never made |
 
-Both had the same shape: **the two halves ran at different points in the lifecycle**, and a
-rejection slipped into the gap. Hence a checklist rather than a principle.
+All five had the same shape: **the two halves ran at different points in the lifecycle**, and a
+rejection slipped into the gap. The last one was found by the conformance suite on its first
+run, in code that had already been reviewed by eye.
+
+**You do not have to remember this.** `src/adr-007.conformance.test.ts` runs every policy
+through these checks automatically, and a completeness test fails the build if a new policy is
+not registered for conformance. The questions below are why those checks exist, and what to do
+when one fails.
 
 ### Every new policy must answer all six
 
