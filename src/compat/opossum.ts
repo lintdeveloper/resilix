@@ -37,7 +37,7 @@ export interface OpossumOptions {
    * Return true for errors that should NOT count as failures. Receives the error followed by
    * the arguments the call was fired with, which opossum's tests rely on.
    */
-  errorFilter?: (error: unknown, ...args: unknown[]) => boolean | void;
+  errorFilter?: (error: unknown, ...args: unknown[]) => unknown;
   /** Maximum concurrent calls. Maps to a resilix bulkhead. */
   capacity?: number;
   name?: string;
@@ -364,9 +364,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   private readonly emitter = new Emitter();
   private readonly clock: Clock;
   private readonly timeoutMs: number | undefined;
-  private readonly errorFilter:
-    | ((error: unknown, ...args: unknown[]) => boolean | void)
-    | undefined;
+  private readonly errorFilter: ((error: unknown, ...args: unknown[]) => unknown) | undefined;
 
   private fallbackFn: ((...args: unknown[]) => unknown) | undefined;
   private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
@@ -466,6 +464,32 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     this.errorFilter = options.errorFilter;
     this.enabled_ = options.enabled ?? true;
 
+    // opossum can be constructed straight into a non-closed state via `options.state`, and
+    // its tests assert the getters report that before any call is made. This must run AFTER
+    // `enabled_` above, or a primed shutdown is immediately overwritten.
+    const primed = options.state;
+    if (primed) {
+      if (primed.enabled === false) this.enabled_ = false;
+      if (primed.shutdown === true) {
+        this.shutdown_ = true;
+        this.enabled_ = false;
+      }
+      const notClosed = primed.closed === false || primed.open === true;
+      // `lastTimerAt` records when the circuit opened. If more than resetTimeout has passed
+      // since then, opossum reports half-open straight away rather than open.
+      const elapsed =
+        typeof primed.lastTimerAt === "number"
+          ? Date.now() - primed.lastTimerAt >= (options.resetTimeout ?? 30_000)
+          : false;
+      this.lastTimerAt = primed.lastTimerAt;
+      if (primed.halfOpen === true || primed.pendingClose === true || (notClosed && elapsed)) {
+        this.halfOpenPending = true;
+      } else if (notClosed) {
+        this.forcedOpen = true;
+        this.scheduleHalfOpenRenewal(options.resetTimeout ?? 30_000);
+      }
+    }
+
     // resilix requires a positive slowCallMs; opossum has no such concept, so derive one that
     // can never be zero. It is inert anyway unless slowCallRate is turned on.
     const slowCallMs = options.slowCallMs ?? this.timeoutMs ?? 10_000;
@@ -531,6 +555,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   /** opossum exposes this as "a half-open trial is pending". */
   get pendingClose(): boolean {
     return this.halfOpen;
+  }
+
+  /** True when primed half-open, so a first call is admitted as the trial. */
+  private get primedHalfOpen(): boolean {
+    return this.halfOpenPending && this.breaker.currentState === "closed";
   }
 
   /**
@@ -649,6 +678,9 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     if (typeof fn !== "function") {
       throw new TypeError("Health check function must be a function");
     }
+    if (typeof interval !== "number" || Number.isNaN(interval)) {
+      throw new TypeError("Health check interval must be a number");
+    }
     // opossum invokes the health check with `this` bound to the circuit, and its test
     // asserts on that binding.
     const bound = fn.bind(this);
@@ -730,6 +762,10 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
 
     if (!this.enabled_) return (await this.action.apply(context, args)) as TReturn;
 
+    if (this.halfOpenPending && this.forcedOpen) {
+      // The reset window elapsed while forced open: let this call be the trial.
+      this.forcedOpen = false;
+    }
     if (this.forcedOpen || (!this.forcedClosed && !this.breaker.admit().ok)) {
       this.statusWindow.increment("rejects");
       const error = new OpossumError("Breaker is open", "EOPENBREAKER");
