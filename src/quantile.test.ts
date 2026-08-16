@@ -10,9 +10,12 @@ import { describe, expect, it } from "vitest";
 import { P2Quantile, RingQuantile } from "./quantile.ts";
 
 /** Deterministic PRNG — no Math.random, so a failure is always reproducible. */
-const rng = (seed: number) => () => {
-  seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-  return seed / 0x7fffffff;
+const rng = (seed: number) => {
+  let state = seed;
+  return () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
 };
 
 const exact = (values: number[], p: number): number => {

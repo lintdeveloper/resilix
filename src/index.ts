@@ -38,3 +38,12 @@ export { safeObserver } from "./observer.ts";
 export type { ExecutionEvent, Observer, RejectionEvent } from "./observer.ts";
 export { classifySql } from "./classify-sql.ts";
 export { retryAfterFrom } from "./classify.ts";
+export { AdaptiveLimiter, limiter } from "./limiter.ts";
+export type {
+  LimitChangedEvent,
+  LimiterAlgorithm,
+  LimiterOptions,
+  LimiterSnapshot,
+} from "./limiter.ts";
+export { P2Quantile, RingQuantile } from "./quantile.ts";
+export type { Quantile } from "./quantile.ts";
