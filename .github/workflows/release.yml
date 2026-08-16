@@ -29,4 +29,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          # npm provenance requires a PUBLIC repository — it attests "this artifact was built
+          # from this commit in this public repo", which cannot be verified for a private one.
+          # Publishing with it enabled from a private repo fails outright. Flip this to "true"
+          # in the same change that makes the repo public; provenance is worth having.
+          NPM_CONFIG_PROVENANCE: "false"
