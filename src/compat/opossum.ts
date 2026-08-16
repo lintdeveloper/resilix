@@ -369,6 +369,14 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   private abortController: { abort: () => void; signal?: unknown } | undefined;
   private autoRenew = false;
   private halfOpenTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * True once the reset timeout has elapsed but before any call has been admitted.
+   *
+   * resilix's breaker is lazy — it only becomes half-open when admit() is next called — but
+   * opossum reports halfOpen/pendingClose purely on elapsed time, and its tests assert that
+   * without making a call.
+   */
+  private halfOpenPending = false;
   private enabled_ = true;
   private forcedOpen = false;
   private forcedClosed = false;
@@ -476,6 +484,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
         halfOpen: { probes: 1, successesToClose: 1 },
         onStateChange: (event) => {
           if (event.to === "open") {
+            this.halfOpenPending = false;
             // resilix's breaker is LAZY: it only moves to half-open when admit() is next
             // called. opossum's is timer-driven, and its tests observe the half-open effects
             // (a renewed abort signal) without making a call. Emulate the timer here.
@@ -508,7 +517,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   get halfOpen(): boolean {
-    return this.breaker.currentState === "half-open";
+    return this.breaker.currentState === "half-open" || this.halfOpenPending;
   }
 
   /** opossum exposes this as "a half-open trial is pending". */
@@ -557,11 +566,14 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
    * — which is what opossum's timer-driven model produces.
    */
   private scheduleHalfOpenRenewal(afterMs: number): void {
-    if (!this.autoRenew || this.shutdown_) return;
+    if (this.shutdown_) return;
     if (this.halfOpenTimer !== undefined) clearTimeout(this.halfOpenTimer);
     this.halfOpenTimer = setTimeout(() => {
       this.halfOpenTimer = undefined;
-      if (!this.shutdown_) this.abortController = new AbortController();
+      if (this.shutdown_) return;
+      this.halfOpenPending = true;
+      if (this.autoRenew) this.abortController = new AbortController();
+      this.emitter.emit("halfOpen", this.options.resetTimeout);
     }, afterMs);
     (this.halfOpenTimer as unknown as { unref?: () => void }).unref?.();
   }
@@ -629,9 +641,12 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
     if (typeof fn !== "function") {
       throw new TypeError("Health check function must be a function");
     }
+    // opossum invokes the health check with `this` bound to the circuit, and its test
+    // asserts on that binding.
+    const bound = fn.bind(this);
     const run = (): void => {
       Promise.resolve()
-        .then(fn)
+        .then(bound)
         .catch((error: unknown) => {
           this.emitter.emit("healthCheckFailed", error);
           this.open();
@@ -677,6 +692,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   disable(): void {
+    if (!this.enabled_) return;
     this.enabled_ = false;
     // opossum removes its rotate listener while disabled, and its tests count listeners
     // on the injected emitter to prove it.
@@ -684,6 +700,7 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   enable(): void {
+    if (this.enabled_) return; // opossum does not add a second rotate listener
     this.enabled_ = true;
     this.statusWindow.attach();
   }
@@ -783,7 +800,11 @@ export class CircuitBreaker<TArgs extends unknown[] = unknown[], TReturn = unkno
   }
 
   private settle(verdict: Verdict, latencyMs: number): void {
-    const obs = { verdict, latencyMs, at: this.clock.now() };
+    // During the warm-up window opossum records the call but refuses to open, so early
+    // failures on a cold service cannot trip the breaker.
+    const effective: Verdict =
+      this.warmingUp && (verdict === "transient" || verdict === "timeout") ? "answered" : verdict;
+    const obs = { verdict: effective, latencyMs, at: this.clock.now() };
     this.semaphore?.settle(obs);
     this.breaker.settle(obs);
   }
