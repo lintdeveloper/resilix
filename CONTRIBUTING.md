@@ -106,3 +106,38 @@ limiter and the retry/throttling work both gated on theirs. If you are adding a 
 comes first, and it should carry the provenance of every default it proposes.
 
 Add a changeset (`pnpm changeset`) for anything user-visible.
+
+## Branch protection
+
+Three rulesets guard `main` and the release tags. They are configured on GitHub, so this is the
+copy that explains *why*.
+
+| Ruleset | Rule | Bypass |
+|---|---|---|
+| `main: no force-push, no deletion` | no non-fast-forward, no deletion | **none — not even the owner** |
+| `main: PR + green checks` | PR required (0 approvals), 9 status checks green | repository admin |
+| `release tags are immutable` | `v*` cannot be deleted or moved | **none** |
+
+**Nobody can rewrite `main`.** This is the one rule with no escape hatch, because a force-push is
+the only mistake here that destroys work rather than just making a mess. Verified by attempting a
+rewind, which is rejected.
+
+**The PR rule is bypassable by the admin on purpose.** A solo maintainer cannot approve their own
+pull request, so a hard gate would mean either self-blocking or fake reviews. The rule makes PRs
+the default path and keeps a hotfix possible. Remove the bypass actor when there is a second
+maintainer.
+
+**Release tags are immutable** because a published npm version is immutable. `v0.5.0` must keep
+pointing at the commit whose provenance attestation says it built `resilix@0.5.0`; a moved tag
+makes that attestation a lie.
+
+### Required checks, and the two that are deliberately absent
+
+Required: `build`, `node 18`, `node 20`, `node 22`, `node 24`, `bun`, `deno`,
+`cloudflare workers`, `Build site`.
+
+**Not required, and must never be:** `Deploy to Pages` and `release`. Both are `push`-triggered
+only, so they never report on a pull request — requiring a check that cannot run blocks every
+merge forever. `Deploy to Pages` shows as `SKIPPED` on PRs, which is correct.
+
+If you add a workflow, only add it to the required list if it runs `on: pull_request`.
