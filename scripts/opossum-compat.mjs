@@ -68,8 +68,10 @@ const fetchSuite = async () => {
   // opossum's tests do `require('../')`; point that at our build.
   writeFileSync(
     join(HARNESS, "shim.cjs"),
-    `const mod = require(${JSON.stringify(join(ROOT, "dist", "compat", "opossum.cjs"))});\n` +
-      "module.exports = mod.default ?? mod;\nmodule.exports.default = module.exports;\n",
+    `const mod = require(${JSON.stringify(join(ROOT, "dist", "compat", "opossum.cjs"))});
+module.exports = mod.default ?? mod;
+module.exports.default = module.exports;
+`,
   );
   execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "tape"], {
     cwd: HARNESS,
