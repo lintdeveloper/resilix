@@ -1,8 +1,8 @@
-import { systemClock } from "./clock.ts";
-import { priorityOf, shouldShed } from "./priority.ts";
-import { systemRandom } from "./random.ts";
-import type { Random } from "./random.ts";
-import { ADMIT, refuse } from "./types.ts";
+import { systemClock } from "../core/clock.ts";
+import { priorityOf, shouldShed } from "../core/priority.ts";
+import { systemRandom } from "../core/random.ts";
+import type { Random } from "../core/random.ts";
+import { ADMIT, refuse } from "../core/types.ts";
 import type {
   Admission,
   AdmissionRequest,
@@ -11,7 +11,7 @@ import type {
   Policy,
   PolicyEnv,
   PolicyFactory,
-} from "./types.ts";
+} from "../core/types.ts";
 
 export interface ThrottlerOptions {
   /**

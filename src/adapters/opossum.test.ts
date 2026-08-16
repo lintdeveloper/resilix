@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FakeClock } from "../clock.ts";
+import { FakeClock } from "../core/clock.ts";
 import CircuitBreaker from "./opossum.ts";
 
 const failing = () => Promise.reject(Object.assign(new Error("nope"), { code: "ECONNRESET" }));

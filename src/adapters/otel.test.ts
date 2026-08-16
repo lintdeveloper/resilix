@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { breaker } from "./breaker.ts";
-import { bulkhead } from "./bulkhead.ts";
-import { FakeClock } from "./clock.ts";
+import { FakeClock } from "../core/clock.ts";
+import { pipeline } from "../core/pipeline.ts";
+import { breaker } from "../policies/breaker.ts";
+import { bulkhead } from "../policies/bulkhead.ts";
 import { otel } from "./otel.ts";
 import type {
   CounterLike,
@@ -10,7 +11,6 @@ import type {
   ObservableGaugeLike,
   ObservableResultLike,
 } from "./otel.ts";
-import { pipeline } from "./pipeline.ts";
 
 interface Recorded {
   counters: Map<string, Array<{ value: number; attributes?: Record<string, string | number> }>>;

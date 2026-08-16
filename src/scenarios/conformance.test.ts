@@ -10,14 +10,14 @@
  * therefore fails the build, rather than waiting for someone to remember the checklist.
  */
 import { describe, expect, it } from "vitest";
-import { breaker } from "./breaker.ts";
-import { bulkhead } from "./bulkhead.ts";
-import { FakeClock } from "./clock.ts";
-import { limiter } from "./limiter.ts";
-import { FakeRandom } from "./random.ts";
-import { rateLimit } from "./rate-limit.ts";
-import { throttler } from "./throttler.ts";
-import type { Observation, Policy, PolicyFactory } from "./types.ts";
+import { FakeClock } from "../core/clock.ts";
+import { FakeRandom } from "../core/random.ts";
+import type { Observation, Policy, PolicyFactory } from "../core/types.ts";
+import { breaker } from "../policies/breaker.ts";
+import { bulkhead } from "../policies/bulkhead.ts";
+import { limiter } from "../policies/limiter.ts";
+import { rateLimit } from "../policies/rate-limit.ts";
+import { throttler } from "../policies/throttler.ts";
 
 /** Everything a policy exposes about itself, for before/after comparison. */
 const stateOf = (p: Policy): string =>
@@ -111,7 +111,7 @@ describe("the conformance registry is complete", () => {
   it("every exported policy factory is covered", async () => {
     // Enumerate what the package actually ships rather than trusting the list above. A new
     // policy added to the public surface and not registered here fails the build.
-    const pkg = (await import("./index.ts")) as Record<string, unknown>;
+    const pkg = (await import("../index.ts")) as Record<string, unknown>;
     const registered = new Set(POLICIES.map(([name]) => name));
 
     // A policy factory is a function returning something with the Policy shape. Probe each

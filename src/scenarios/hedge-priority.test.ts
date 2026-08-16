@@ -3,14 +3,14 @@
  * questions the spec said must be simulated rather than reasoned about.
  */
 import { describe, expect, it } from "vitest";
-import { RetryBudget } from "./budget.ts";
-import { FakeClock } from "./clock.ts";
-import { AdaptiveLimiter, limiter } from "./limiter.ts";
-import { pipeline } from "./pipeline.ts";
-import { FairShare } from "./priority.ts";
-import { FakeRandom } from "./random.ts";
-import { throttler } from "./throttler.ts";
-import type { Priority } from "./types.ts";
+import { RetryBudget } from "../core/budget.ts";
+import { FakeClock } from "../core/clock.ts";
+import { pipeline } from "../core/pipeline.ts";
+import { FairShare } from "../core/priority.ts";
+import { FakeRandom } from "../core/random.ts";
+import type { Priority } from "../core/types.ts";
+import { AdaptiveLimiter, limiter } from "../policies/limiter.ts";
+import { throttler } from "../policies/throttler.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

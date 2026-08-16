@@ -60,6 +60,23 @@ Full reasoning for this and every other structural choice is in
 - **Every default is either cited to a source or labelled as a guess.** Look at any existing
   policy's options — each one names where its number came from.
 
+## Layout
+
+```
+src/core/        the kernel — types, clock, random, registry, classifiers, the pipeline
+src/policies/    the five things that can refuse a call
+src/adapters/    optional-peer integrations: fetch, otel, the opossum shim
+src/scenarios/   cross-cutting suites that are not about one file
+```
+
+**Unit tests sit beside their source** — `core/window.ts` and `core/window.test.ts`. A suite that
+exercises an *interaction* rather than a file goes in `src/scenarios/` with a name describing the
+behaviour: `conformance`, `use-cases`, `hedge-priority`, `serialisation`. If you cannot name the
+single file a test belongs to, that is the signal it is a scenario.
+
+Subpath exports map to `src/adapters/`, but the published paths are stable regardless — moving a
+file inside `src/` must never change what a consumer imports.
+
 ## Working on it
 
 ```bash

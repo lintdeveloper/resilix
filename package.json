@@ -44,32 +44,32 @@
     },
     "./otel": {
       "import": {
-        "types": "./dist/otel.d.ts",
-        "default": "./dist/otel.js"
+        "types": "./dist/adapters/otel.d.ts",
+        "default": "./dist/adapters/otel.js"
       },
       "require": {
-        "types": "./dist/otel.d.cts",
-        "default": "./dist/otel.cjs"
+        "types": "./dist/adapters/otel.d.cts",
+        "default": "./dist/adapters/otel.cjs"
       }
     },
     "./compat/opossum": {
       "import": {
-        "types": "./dist/compat/opossum.d.ts",
-        "default": "./dist/compat/opossum.js"
+        "types": "./dist/adapters/opossum.d.ts",
+        "default": "./dist/adapters/opossum.js"
       },
       "require": {
-        "types": "./dist/compat/opossum.d.cts",
-        "default": "./dist/compat/opossum.cjs"
+        "types": "./dist/adapters/opossum.d.cts",
+        "default": "./dist/adapters/opossum.cjs"
       }
     },
     "./fetch": {
       "import": {
-        "types": "./dist/fetch.d.ts",
-        "default": "./dist/fetch.js"
+        "types": "./dist/adapters/fetch.d.ts",
+        "default": "./dist/adapters/fetch.js"
       },
       "require": {
-        "types": "./dist/fetch.d.cts",
-        "default": "./dist/fetch.cjs"
+        "types": "./dist/adapters/fetch.d.cts",
+        "default": "./dist/adapters/fetch.cjs"
       }
     },
     "./package.json": "./package.json"

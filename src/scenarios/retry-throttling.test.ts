@@ -5,16 +5,16 @@
  * shed decision is reproducible.
  */
 import { describe, expect, it, vi } from "vitest";
-import { Backoff } from "./backoff.ts";
-import { breaker } from "./breaker.ts";
-import { RetryBudget } from "./budget.ts";
-import { Bulkhead, bulkhead } from "./bulkhead.ts";
-import { FakeClock } from "./clock.ts";
-import { AdaptiveLimiter, limiter } from "./limiter.ts";
-import { RejectedError, pipeline } from "./pipeline.ts";
-import { FakeRandom, constantRandom } from "./random.ts";
-import { RateLimiter, rateLimit } from "./rate-limit.ts";
-import { AdaptiveThrottler, throttler } from "./throttler.ts";
+import { Backoff } from "../core/backoff.ts";
+import { RetryBudget } from "../core/budget.ts";
+import { FakeClock } from "../core/clock.ts";
+import { RejectedError, pipeline } from "../core/pipeline.ts";
+import { FakeRandom, constantRandom } from "../core/random.ts";
+import { breaker } from "../policies/breaker.ts";
+import { Bulkhead, bulkhead } from "../policies/bulkhead.ts";
+import { AdaptiveLimiter, limiter } from "../policies/limiter.ts";
+import { RateLimiter, rateLimit } from "../policies/rate-limit.ts";
+import { AdaptiveThrottler, throttler } from "../policies/throttler.ts";
 
 const transient = () => Object.assign(new Error("down"), { code: "ECONNRESET" });
 

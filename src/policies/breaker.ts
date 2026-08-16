@@ -1,5 +1,5 @@
-import { systemClock } from "./clock.ts";
-import { ADMIT, isFailureVerdict, isIgnoredVerdict, refuse } from "./types.ts";
+import { systemClock } from "../core/clock.ts";
+import { ADMIT, isFailureVerdict, isIgnoredVerdict, refuse } from "../core/types.ts";
 import type {
   Admission,
   Clock,
@@ -8,9 +8,9 @@ import type {
   PolicyEnv,
   PolicyFactory,
   PolicyObserver,
-} from "./types.ts";
-import { RollingWindow } from "./window.ts";
-import type { WindowSnapshot } from "./window.ts";
+} from "../core/types.ts";
+import { RollingWindow } from "../core/window.ts";
+import type { WindowSnapshot } from "../core/window.ts";
 
 export type BreakerState = "closed" | "open" | "half-open";
 

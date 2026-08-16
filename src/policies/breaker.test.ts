@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FakeClock } from "../core/clock.ts";
+import type { Verdict } from "../core/types.ts";
 import { CircuitBreaker } from "./breaker.ts";
 import type { BreakerOptions, StateChangeEvent } from "./breaker.ts";
-import { FakeClock } from "./clock.ts";
-import type { Verdict } from "./types.ts";
 
 const build = (options: Partial<BreakerOptions> = {}, clock = new FakeClock()) => {
   const events: StateChangeEvent[] = [];

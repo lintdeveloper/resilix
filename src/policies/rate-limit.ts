@@ -1,6 +1,13 @@
-import { systemClock } from "./clock.ts";
-import { ADMIT, refuse } from "./types.ts";
-import type { Admission, Clock, Observation, Policy, PolicyEnv, PolicyFactory } from "./types.ts";
+import { systemClock } from "../core/clock.ts";
+import { ADMIT, refuse } from "../core/types.ts";
+import type {
+  Admission,
+  Clock,
+  Observation,
+  Policy,
+  PolicyEnv,
+  PolicyFactory,
+} from "../core/types.ts";
 
 export interface RateLimitOptions {
   /** Sustained calls per interval. */

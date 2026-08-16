@@ -7,15 +7,15 @@
  * timestamps that meant nothing in a second process.
  */
 import { describe, expect, it } from "vitest";
-import { Backoff } from "./backoff.ts";
-import { RetryBudget } from "./budget.ts";
-import { FakeClock } from "./clock.ts";
-import { AdaptiveLimiter } from "./limiter.ts";
-import { FairShare } from "./priority.ts";
-import { P2Quantile } from "./quantile.ts";
-import { FakeRandom, constantRandom } from "./random.ts";
-import { RateLimiter } from "./rate-limit.ts";
-import { AdaptiveThrottler } from "./throttler.ts";
+import { Backoff } from "../core/backoff.ts";
+import { RetryBudget } from "../core/budget.ts";
+import { FakeClock } from "../core/clock.ts";
+import { FairShare } from "../core/priority.ts";
+import { P2Quantile } from "../core/quantile.ts";
+import { FakeRandom, constantRandom } from "../core/random.ts";
+import { AdaptiveLimiter } from "../policies/limiter.ts";
+import { RateLimiter } from "../policies/rate-limit.ts";
+import { AdaptiveThrottler } from "../policies/throttler.ts";
 
 describe("AdaptiveLimiter", () => {
   it("round-trips its limit and baseline", () => {

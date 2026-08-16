@@ -8,10 +8,10 @@
  * Everything is deterministic: injected clock, seeded PRNG, no timers.
  */
 import { describe, expect, it } from "vitest";
-import { FakeClock } from "./clock.ts";
+import { FakeClock } from "../core/clock.ts";
+import type { Verdict } from "../core/types.ts";
 import { AdaptiveLimiter } from "./limiter.ts";
 import type { LimiterOptions } from "./limiter.ts";
-import type { Verdict } from "./types.ts";
 
 /**
  * An upstream with a real capacity. Latency is the baseline until concurrency exceeds capacity,

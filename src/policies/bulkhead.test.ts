@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { Observation, Verdict } from "../core/types.ts";
 import { Bulkhead } from "./bulkhead.ts";
-import type { Observation, Verdict } from "./types.ts";
 
 const settle = (b: Bulkhead, verdict: Verdict = "success"): void => {
   const obs: Observation = { verdict, latencyMs: 1, at: 0 };

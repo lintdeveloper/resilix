@@ -1,7 +1,7 @@
-import { systemClock } from "./clock.ts";
-import { FairShare, priorityOf, shouldShed } from "./priority.ts";
-import { P2Quantile } from "./quantile.ts";
-import { ADMIT, refuse } from "./types.ts";
+import { systemClock } from "../core/clock.ts";
+import { FairShare, priorityOf, shouldShed } from "../core/priority.ts";
+import { P2Quantile } from "../core/quantile.ts";
+import { ADMIT, refuse } from "../core/types.ts";
 import type {
   Admission,
   AdmissionRequest,
@@ -11,7 +11,7 @@ import type {
   PolicyEnv,
   PolicyFactory,
   PolicyObserver,
-} from "./types.ts";
+} from "../core/types.ts";
 
 /**
  * Implements `docs/specs/adaptive-limiter.md`. Read it before changing anything here; every

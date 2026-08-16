@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { breaker } from "./breaker.ts";
-import { bulkhead } from "./bulkhead.ts";
+import { breaker } from "../policies/breaker.ts";
+import { bulkhead } from "../policies/bulkhead.ts";
 import { FakeClock } from "./clock.ts";
 import { safeObserver } from "./observer.ts";
 import type { Observer } from "./observer.ts";

@@ -1,3 +1,6 @@
+import { classifyHttp } from "../core/classify.ts";
+import { systemClock } from "../core/clock.ts";
+import type { Clock, Verdict } from "../core/types.ts";
 /**
  * Drop-in replacement for `opossum`, backed by resilix.
  *
@@ -14,11 +17,8 @@
  * `OpossumOptions`. Notably `slowCallRate` defaults to 1, which disables slow-call
  * tripping, because opossum has no such concept and enabling it would alter behaviour.
  */
-import { CircuitBreaker as ResilixBreaker } from "../breaker.ts";
-import { Bulkhead } from "../bulkhead.ts";
-import { classifyHttp } from "../classify.ts";
-import { systemClock } from "../clock.ts";
-import type { Clock, Verdict } from "../types.ts";
+import { CircuitBreaker as ResilixBreaker } from "../policies/breaker.ts";
+import { Bulkhead } from "../policies/bulkhead.ts";
 
 export interface OpossumOptions {
   /** Milliseconds before an action is considered failed. Default 10_000. Set false to disable. */

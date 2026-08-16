@@ -19,9 +19,9 @@
  *  3. **`Retry-After`.** Already parsed by the classifier, but only if the response object
  *     actually reaches it.
  */
-import { classifyHttp } from "./classify.ts";
-import { type Pipeline, pipeline } from "./pipeline.ts";
-import type { PipelineOptions } from "./pipeline.ts";
+import { classifyHttp } from "../core/classify.ts";
+import { type Pipeline, pipeline } from "../core/pipeline.ts";
+import type { PipelineOptions } from "../core/pipeline.ts";
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -37,7 +37,7 @@ export interface ResilientFetchOptions
    * turns a partial failure into a complete one.
    */
   key?: (request: Request) => string;
-  priority?: (request: Request) => import("./types.ts").Priority;
+  priority?: (request: Request) => import("../core/types.ts").Priority;
   tenant?: (request: Request) => string;
   /** The underlying implementation. Defaults to the runtime's global `fetch`. */
   fetch?: FetchLike;

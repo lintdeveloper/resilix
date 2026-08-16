@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { breaker } from "./breaker.ts";
-import type { CircuitBreaker } from "./breaker.ts";
+import { breaker } from "../policies/breaker.ts";
+import type { CircuitBreaker } from "../policies/breaker.ts";
 import { FakeClock } from "./clock.ts";
 import { RejectedError, TimeoutError, pipeline } from "./pipeline.ts";
 import { KeyRegistry } from "./registry.ts";

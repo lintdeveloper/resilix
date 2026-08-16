@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { breaker } from "./breaker.ts";
-import type { CircuitBreaker } from "./breaker.ts";
-import { FakeClock } from "./clock.ts";
+import { FakeClock } from "../core/clock.ts";
+import { breaker } from "../policies/breaker.ts";
+import type { CircuitBreaker } from "../policies/breaker.ts";
 import { resilientFetch } from "./fetch.ts";
 import type { FetchLike } from "./fetch.ts";
 

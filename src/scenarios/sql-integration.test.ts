@@ -16,8 +16,8 @@
  * signal wanted.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifySql } from "./classify-sql.ts";
-import type { Verdict } from "./types.ts";
+import { classifySql } from "../core/classify-sql.ts";
+import type { Verdict } from "../core/types.ts";
 
 const URL_ = process.env.RESILIX_TEST_DATABASE_URL;
 const suite = URL_ ? describe : describe.skip;

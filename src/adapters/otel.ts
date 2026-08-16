@@ -15,8 +15,8 @@
  *   const api = pipeline({ policies: [breaker({ slowCallMs: 3000 })], observers: [otel()] });
  *   otel().observeGauges(api);   // registers pull-based gauges
  */
-import type { Observer } from "./observer.ts";
-import type { Pipeline } from "./pipeline.ts";
+import type { Observer } from "../core/observer.ts";
+import type { Pipeline } from "../core/pipeline.ts";
 
 /**
  * The slice of `@opentelemetry/api`'s Meter that we use, declared structurally.

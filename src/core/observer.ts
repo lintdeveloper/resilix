@@ -1,4 +1,4 @@
-import type { StateChangeEvent } from "./breaker.ts";
+import type { StateChangeEvent } from "../policies/breaker.ts";
 import type { RejectionReason, Verdict } from "./types.ts";
 
 export interface ExecutionEvent {

@@ -7,13 +7,13 @@
  * that table.
  */
 import { describe, expect, it, vi } from "vitest";
-import { breaker } from "./breaker.ts";
-import type { CircuitBreaker } from "./breaker.ts";
-import { bulkhead } from "./bulkhead.ts";
-import { classifySql } from "./classify-sql.ts";
-import { retryAfterFrom } from "./classify.ts";
-import { FakeClock } from "./clock.ts";
-import { pipeline } from "./pipeline.ts";
+import { classifySql } from "../core/classify-sql.ts";
+import { retryAfterFrom } from "../core/classify.ts";
+import { FakeClock } from "../core/clock.ts";
+import { pipeline } from "../core/pipeline.ts";
+import { breaker } from "../policies/breaker.ts";
+import type { CircuitBreaker } from "../policies/breaker.ts";
+import { bulkhead } from "../policies/bulkhead.ts";
 
 const brk = (p: ReturnType<typeof pipeline>, key = "default") =>
   p.policiesFor(key)[0] as CircuitBreaker;

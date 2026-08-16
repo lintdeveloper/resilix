@@ -1,5 +1,5 @@
-import { ADMIT, refuse } from "./types.ts";
-import type { Admission, Observation, Policy, PolicyEnv, PolicyFactory } from "./types.ts";
+import { ADMIT, refuse } from "../core/types.ts";
+import type { Admission, Observation, Policy, PolicyEnv, PolicyFactory } from "../core/types.ts";
 
 export interface BulkheadOptions {
   /** Maximum concurrent executions. */
