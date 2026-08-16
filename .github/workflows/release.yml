@@ -29,6 +29,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # changesets/action decides how to authenticate by looking for NPM_TOKEN specifically.
+          # With only NODE_AUTH_TOKEN set it logged "No NPM_TOKEN found, but OIDC is available"
+          # and attempted trusted publishing, which fails until a trusted publisher exists for
+          # the package. setup-node had already written the token into .npmrc, so the publish
+          # authenticated anyway — but the log said the opposite of what was happening.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           # Provenance attests that the artifact was built from this commit in this repo.
-          # It requires a public repository, which this now is.
+          # It requires a public repository, which this now is. Note this is independent of how
+          # the publish authenticates: both use the job's OIDC identity, but provenance only
+          # SIGNS the artifact, it does not log in.
           NPM_CONFIG_PROVENANCE: "true"
+          # MIGRATE BEFORE JANUARY 2027. This publishes with a granular access token that has
+          # bypass-2FA enabled, which npm is retiring: such tokens already cannot perform account
+          # management, and around Jan 2027 they lose direct publish, downgrading to staged
+          # publishes that need manual 2FA approval. The replacement is trusted publishing —
+          # `npm trust github resilix --repo lintdeveloper/resilix --file release.yml
+          # --allow-publish` — after which NPM_TOKEN and both env lines above can be deleted.
