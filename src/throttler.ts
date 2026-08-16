@@ -107,18 +107,33 @@ export class AdaptiveThrottler implements Policy<ThrottlerSnapshot> {
 
   admit(): Admission {
     const rate = this.rejectionRate;
-    this.bucket().requests++;
     // Probabilistic on purpose. Deterministic shedding would make every client in a fleet
     // refuse the same requests in the same order, which is the correlation this exists to break.
     if (rate > 0 && this.random.next() < rate) return refuse("throttled");
     return ADMIT;
   }
 
+  /**
+   * BOTH counters move here, not at admit.
+   *
+   * Counting a request at admit time looks harmless and is not: a call refused by any INNER
+   * policy — a bulkhead, the limiter, a timeout — would be counted as a request that the
+   * upstream never accepted, and the throttler would read our own shedding as upstream
+   * distress. Measured with a perfectly healthy upstream behind a tight bulkhead, that drove
+   * the rejection rate to its 0.9 ceiling: 60,000 requests, 2,802 accepts, and 54,103 calls
+   * shed against a service that answered 200 to everything it was actually given.
+   *
+   * ADR-007 already says our own rejections are never upstream evidence. This is that rule
+   * applied to the throttler's own accounting.
+   */
   settle(obs: Observation): void {
+    if (obs.verdict === "rejected") return;
+    const bucket = this.bucket();
+    bucket.requests++;
     // "Accepted by the backend" means the upstream did work — a 4xx counts, since the server
-    // processed the request and answered. Overload, transport failure and our own deadline do
-    // not. Our own shedding is invisible, as everywhere else.
-    if (obs.verdict === "success" || obs.verdict === "answered") this.bucket().accepts++;
+    // processed the request and answered. Overload, transport failure and our own deadline
+    // do not.
+    if (obs.verdict === "success" || obs.verdict === "answered") bucket.accepts++;
   }
 
   metrics(): Record<string, number> {

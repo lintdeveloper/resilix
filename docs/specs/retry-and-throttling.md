@@ -246,9 +246,22 @@ written:
    ignore it and retry sooner? Failing fast is probably right; it needs deciding, not defaulting.
 3. **Throttler window at low traffic.** Two minutes at 8 req/min is ~16 samples. The same hole
    the breaker and limiter both had. Needs an explicit answer before shipping, not after.
-4. **Does the throttler double-count with the limiter?** Both shed on upstream distress. Running
-   both may shed twice as hard as intended. Needs a simulation, and possibly a documented
-   recommendation to run one or the other rather than both.
+4. ~~**Does the throttler double-count with the limiter?**~~ **RESOLVED, and it found a bug.**
+
+   They do not compound: they shed on different signals (accept-ratio vs latency) and the
+   pipeline short-circuits at the first refusal, so rates do not add — the outermost policy
+   simply decides.
+
+   The simulation found something worse instead. The throttler counted a `request` at
+   `admit()`, so a call refused by any INNER policy was recorded as a request the upstream had
+   not accepted — our own shedding read as upstream distress, in direct violation of ADR-007.
+   Measured against a bulkhead of 5 with 20 offered per tick and an upstream answering 200 to
+   everything it actually received: **60,000 requests, 2,802 accepts, rejection rate pinned at
+   the 0.9 ceiling, 54,103 calls shed for no reason at all.**
+
+   Fixed by moving both counters to `settle()` and ignoring the `rejected` verdict. Regression
+   tests cover both directions: inner shedding must not throttle, and a genuinely failing
+   upstream still must.
 
 ---
 

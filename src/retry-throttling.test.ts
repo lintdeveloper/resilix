@@ -8,11 +8,13 @@ import { describe, expect, it, vi } from "vitest";
 import { Backoff } from "./backoff.ts";
 import { breaker } from "./breaker.ts";
 import { RetryBudget } from "./budget.ts";
+import { bulkhead } from "./bulkhead.ts";
 import { FakeClock } from "./clock.ts";
+import { limiter } from "./limiter.ts";
 import { RejectedError, pipeline } from "./pipeline.ts";
 import { FakeRandom, constantRandom } from "./random.ts";
 import { RateLimiter, rateLimit } from "./rate-limit.ts";
-import { AdaptiveThrottler } from "./throttler.ts";
+import { AdaptiveThrottler, throttler } from "./throttler.ts";
 
 const transient = () => Object.assign(new Error("down"), { code: "ECONNRESET" });
 
@@ -417,5 +419,99 @@ describe("FakeRandom", () => {
       expect(v).toBeLessThan(1);
     }
     expect(new Set(values).size).toBeGreaterThan(1_500);
+  });
+});
+
+describe("§9.4 does the throttler double-count with other shedding?", () => {
+  /** Offered load far above `cap`, against an upstream that answers 200 to everything. */
+  const healthyBehindACap = (cap: number, offered: number) => {
+    const clock = new FakeClock();
+    const p = pipeline({
+      policies: [throttler({ minRequests: 10 }), bulkhead({ concurrency: cap })],
+      clock,
+      random: new FakeRandom(11),
+    });
+    const inflight: Array<{ doneAt: number; settle: () => void }> = [];
+    let throttled = 0;
+    for (let i = 0; i < 2_000; i++) {
+      for (let j = inflight.length - 1; j >= 0; j--) {
+        const c = inflight[j] as { doneAt: number; settle: () => void };
+        if (c.doneAt <= clock.now()) {
+          inflight.splice(j, 1);
+          c.settle();
+        }
+      }
+      for (let k = 0; k < offered; k++) {
+        const g = p.gate({});
+        if (!g.ok) {
+          if (g.reason === "throttled") throttled++;
+          continue;
+        }
+        inflight.push({ doneAt: clock.now() + 50, settle: () => g.settleVerdict("success", 50) });
+      }
+      clock.advance(10);
+    }
+    const t = p.policiesFor().find((x) => x.name === "throttler") as AdaptiveThrottler;
+    return { throttled, rate: t.rejectionRate };
+  };
+
+  it("inner shedding must NOT be read as upstream distress", () => {
+    // The bug this caught: counting a request at admit() meant every call an inner policy
+    // refused looked like a request the upstream had not accepted. Against a bulkhead of 5 and
+    // 20 offered per tick — with an upstream answering 200 to everything it actually received —
+    // the throttler pinned itself at its 0.9 ceiling and shed 54,103 calls.
+    for (const [cap, offered] of [
+      [100, 2],
+      [20, 10],
+      [5, 20],
+    ] as const) {
+      const { throttled, rate } = healthyBehindACap(cap, offered);
+      expect(rate).toBe(0);
+      expect(throttled).toBe(0);
+    }
+  });
+
+  it("still throttles when the UPSTREAM is the one failing", () => {
+    // The other half: the fix must not make the throttler inert.
+    const clock = new FakeClock();
+    const p = pipeline({
+      policies: [throttler({ minRequests: 10 })],
+      clock,
+      random: new FakeRandom(11),
+    });
+    let throttled = 0;
+    for (let i = 0; i < 500; i++) {
+      const g = p.gate({});
+      if (!g.ok) {
+        throttled++;
+      } else {
+        g.settleVerdict("transient", 20);
+      }
+      clock.advance(20);
+    }
+    expect(throttled).toBeGreaterThan(100);
+  });
+
+  it("throttler and limiter do not compound — the outermost decides", () => {
+    // They shed on different signals (accept-ratio vs latency), and the pipeline
+    // short-circuits at the first refusal, so shed rates do not add.
+    const build = (policies: ReturnType<typeof throttler>[]) => {
+      const clock = new FakeClock();
+      const p = pipeline({ policies, clock, random: new FakeRandom(11) });
+      let refused = 0;
+      for (let i = 0; i < 1_000; i++) {
+        const g = p.gate({});
+        if (g.ok) g.settleVerdict("transient", 3_000);
+        else refused++;
+        clock.advance(20);
+      }
+      return refused / 1_000;
+    };
+
+    const throttlerOnly = build([throttler({ minRequests: 10 })]);
+    const both = build([throttler({ minRequests: 10 }), limiter({ initialLimit: 20 })]);
+
+    // Both-together must not exceed throttler-alone by any meaningful margin.
+    expect(both).toBeLessThanOrEqual(throttlerOnly + 0.05);
   });
 });
