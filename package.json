@@ -1,7 +1,7 @@
 {
   "name": "resilix",
   "version": "0.0.0",
-  "description": "Load limiting for JavaScript \u2014 a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
+  "description": "Load limiting for JavaScript — a circuit breaker that trips when your upstream is slow but not failing, and knows a 404 is an answer, not an outage. Zero dependencies, no I/O, runs on every runtime.",
   "keywords": [
     "circuit-breaker",
     "load-shedding",
@@ -76,13 +76,16 @@
     "check:package": "publint && attw --pack --profile node16",
     "prepublishOnly": "pnpm build && pnpm test",
     "release": "changeset publish",
-    "ci:version": "changeset version && biome format --write package.json"
+    "ci:version": "changeset version && biome format --write package.json",
+    "test:integration": "RESILIX_TEST_DATABASE_URL=${RESILIX_TEST_DATABASE_URL:-postgres://postgres:resilix@localhost:5459/resilix_test} vitest run src/sql-integration.test.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.27.9",
+    "@types/pg": "^8.21.0",
     "@vitest/coverage-v8": "^2.1.8",
+    "pg": "^8.23.0",
     "publint": "^0.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

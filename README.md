@@ -78,14 +78,27 @@ few calls. resilix cannot detect it at construction time, so it reports it:
 ### Guarding a database
 
 `classifyHttp` is wrong for SQL: it calls a unique-violation `transient`, so a burst of
-duplicate inserts looks like the database falling over. Use `classifySql`, which maps
-constraint and syntax errors to `answered`, pool exhaustion and deadlocks to `overload`, and
-only genuine unavailability to `transient`:
+duplicate inserts looks like the database falling over. Use `classifySql`:
 
 ```ts
 import { classifySql } from "resilix";
 pipeline({ classify: classifySql, policies: [bulkhead({ concurrency: 10 }), breaker({ ... })] });
 ```
+
+Every mapping was verified against **real errors** from `pg` 8.23 and Prisma 7.9 on PostgreSQL
+16, not from documentation. Three things only showed up that way:
+
+- **`pg` pool exhaustion has no error code at all** — a bare `Error` reading
+  `"timeout exceeded when trying to connect"`. Misread as `transient`, a burst that exhausts
+  your pool would *open the circuit*, when the database is healthy and you should shed load.
+- **Prisma 7 nests the real SQLSTATE** at `meta.driverAdapterError.cause.originalCode`, and its
+  `P2010` is ambiguous — the same code wraps a syntax error, a missing column and a statement
+  timeout. `classifySql` unwraps it; classifying on `P2010` alone calls a timeout `transient`.
+- **`PrismaClientValidationError` carries no code**, only a name. It is the caller passing the
+  wrong type, so it is `answered` and must never open a circuit.
+
+Run `pnpm test:integration` with a Postgres to re-verify after a driver upgrade; the captured
+fixtures alone would keep passing if a shape changed.
 
 ## The verdict model
 
