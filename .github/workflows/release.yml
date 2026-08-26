@@ -3,6 +3,15 @@ name: Release
 on:
   push:
     branches: [main]
+  # Re-triggerable by hand. The publish is driven by a push to main, and a push produces exactly
+  # one chance to run it: if Actions is unavailable when the release commit lands — as during the
+  # 2026-08-26 major outage — no run is ever created, changesets has already consumed its
+  # changesets, and the version sits on main with nothing on npm. Without this the only recovery
+  # is pushing another commit to main purely to fire the event.
+  #
+  # Safe to expose: `changeset publish` is a no-op for a version that is already on the registry,
+  # so an accidental dispatch cannot republish or overwrite anything.
+  workflow_dispatch:
 
 permissions:
   contents: write
