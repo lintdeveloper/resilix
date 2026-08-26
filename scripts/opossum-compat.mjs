@@ -54,6 +54,25 @@ const EXCLUDED = {
 
 const RAW = (f) => `https://raw.githubusercontent.com/nodeshift/opossum/${REF}/test/${f}`;
 
+/**
+ * Point opossum's `require('../')` at our build.
+ *
+ * Rewritten on EVERY run, not just when the harness is first created. It used to be generated
+ * once inside fetchSuite() and then cached alongside the downloaded suite — so when the shim
+ * moved from dist/compat/ to dist/adapters/ during the src/ reorg, every cached harness kept
+ * requiring a path that no longer existed. The whole suite reported 0 of 0 STALLED, which is a
+ * generated file being treated as a downloaded one.
+ */
+const writeShim = () => {
+  writeFileSync(
+    join(HARNESS, "shim.cjs"),
+    `const mod = require(${JSON.stringify(join(ROOT, "dist", "adapters", "opossum.cjs"))});
+module.exports = mod.default ?? mod;
+module.exports.default = module.exports;
+`,
+  );
+};
+
 const fetchSuite = async () => {
   mkdirSync(join(HARNESS, "test", "browser"), { recursive: true });
   for (const f of [...TESTS, "browser/browser-tap.js"]) {
@@ -65,14 +84,7 @@ const fetchSuite = async () => {
     join(HARNESS, "package.json"),
     `${JSON.stringify({ name: "opossum-compat-harness", private: true, main: "./shim.cjs" }, null, 2)}\n`,
   );
-  // opossum's tests do `require('../')`; point that at our build.
-  writeFileSync(
-    join(HARNESS, "shim.cjs"),
-    `const mod = require(${JSON.stringify(join(ROOT, "dist", "compat", "opossum.cjs"))});
-module.exports = mod.default ?? mod;
-module.exports.default = module.exports;
-`,
-  );
+  writeShim();
   execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "tape"], {
     cwd: HARNESS,
     stdio: "ignore",
@@ -103,8 +115,11 @@ const main = async () => {
   if (process.argv.includes("--refresh") || !existsSync(join(HARNESS, "shim.cjs"))) {
     console.log(`fetching opossum@${REF} test suite…`);
     await fetchSuite();
+  } else {
+    // The suite is cached; the shim is generated, so refresh it regardless. See writeShim().
+    writeShim();
   }
-  if (!existsSync(join(ROOT, "dist", "compat", "opossum.cjs"))) {
+  if (!existsSync(join(ROOT, "dist", "adapters", "opossum.cjs"))) {
     console.log("building…");
     execFileSync("npm", ["run", "build"], { cwd: ROOT, stdio: "ignore" });
   }
