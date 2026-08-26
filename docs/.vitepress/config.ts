@@ -114,6 +114,7 @@ export default defineConfig({
           items: [
             { text: "Driving policies by hand", link: "/guide/manual-control" },
             { text: "Reading the code", link: "/guide/reading-the-code" },
+            { text: "Guarding undici", link: "/guide/undici" },
             { text: "Telemetry", link: "/guide/telemetry" },
             { text: "Migrating from opossum", link: "/guide/opossum" },
           ],

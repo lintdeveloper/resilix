@@ -6,6 +6,7 @@ export default defineConfig({
     "src/adapters/otel.ts",
     "src/adapters/fetch.ts",
     "src/adapters/opossum.ts",
+    "src/adapters/undici.ts",
   ],
   format: ["esm", "cjs"],
   dts: true,
