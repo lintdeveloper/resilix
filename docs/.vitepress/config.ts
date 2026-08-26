@@ -1,16 +1,13 @@
 import { defineConfig } from "vitepress";
 
-// The site is deployed to https://lintdeveloper.github.io/resilix/, so every asset and link
-// needs the repo name as a prefix. Getting this wrong produces a page that loads locally and
-// 404s its own CSS in production, which is the classic Pages failure.
+// The one place the public URL is written. Everything below derives from these two, because the
+// last cutover had the hostname hardcoded in eleven files across four formats.
 //
-// PENDING: js-org/js.org#12312 requests resilix.js.org. When it merges, this becomes "/" and
-// the custom domain has to be set in repo settings — an artifact CNAME file is ignored when
-// publishing via a workflow. The switch is deliberately NOT staged ahead of the merge: setting
-// the custom domain makes the github.io URL redirect to a hostname that does not resolve yet,
-// and js.org's most common rejection reason is a reviewer finding no content on the page.
-// docs/DEPLOYING.md has the full sequence.
-const base = "/resilix/";
+// `base` is "/" because the site is served from the root of a custom domain. On a project page
+// (lintdeveloper.github.io/resilix) it has to be "/resilix/" instead, or every asset 404s —
+// that is the classic GitHub Pages failure, and it flips with the domain, never separately.
+const SITE = "https://resilix.js.org";
+const base = "/";
 
 export default defineConfig({
   base,
@@ -26,7 +23,7 @@ export default defineConfig({
 
   // Without this there is no sitemap.xml at all, so the only way in is a crawler following
   // links from the README. Cheap, and the difference between indexed and invisible.
-  sitemap: { hostname: "https://lintdeveloper.github.io/resilix/" },
+  sitemap: { hostname: `${SITE}${base}` },
 
   // A broken link is a build failure, not a warning. Most of this site is assembled by
   // including regions of the root README, and a moved heading would otherwise rot silently.
@@ -58,15 +55,15 @@ export default defineConfig({
     ["link", { rel: "icon", href: `${base}favicon.svg`, type: "image/svg+xml" }],
     ["meta", { name: "theme-color", content: "#3b6fd4" }],
     ["meta", { property: "og:type", content: "website" }],
-    ["meta", { property: "og:url", content: "https://lintdeveloper.github.io/resilix/" }],
-    ["meta", { property: "og:image", content: `https://lintdeveloper.github.io${base}og.png` }],
+    ["meta", { property: "og:url", content: `${SITE}${base}` }],
+    ["meta", { property: "og:image", content: `${SITE}${base}og.png` }],
     ["meta", { property: "og:image:width", content: "1200" }],
     ["meta", { property: "og:image:height", content: "630" }],
     // X/Twitter ignores og:image without a card type, and does not render SVG — hence a PNG,
     // regenerated from scripts/og-card.html with headless Chrome.
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
     ["meta", { name: "twitter:title", content: "resilix — load limiting for JavaScript" }],
-    ["meta", { name: "twitter:image", content: `https://lintdeveloper.github.io${base}og.png` }],
+    ["meta", { name: "twitter:image", content: `${SITE}${base}og.png` }],
     ["meta", { property: "og:title", content: "resilix — load limiting for JavaScript" }],
     [
       "meta",
