@@ -164,8 +164,15 @@ export interface Gate {
   readonly retryAfterMs?: number;
   /** Report the settled outcome. Runs it through the pipeline's classifier. */
   settle(outcome: unknown, latencyMs: number): void;
-  /** Report a verdict you have already determined. */
-  settleVerdict(verdict: Verdict, latencyMs: number): void;
+  /**
+   * Report a verdict you have already determined.
+   *
+   * `retryAfterMs` carries the upstream's own `Retry-After` so an `overload` verdict keeps it —
+   * a caller driving policies by hand has the header in front of them and should not have to
+   * throw it away. The implementation always accepted it; the type did not declare it, which
+   * `resilix/undici` was the first caller to notice.
+   */
+  settleVerdict(verdict: Verdict, latencyMs: number, retryAfterMs?: number): void;
 }
 
 export class Pipeline<I = unknown> {

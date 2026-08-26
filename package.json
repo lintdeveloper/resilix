@@ -82,6 +82,16 @@
         "default": "./dist/adapters/fetch.cjs"
       }
     },
+    "./undici": {
+      "import": {
+        "types": "./dist/adapters/undici.d.ts",
+        "default": "./dist/adapters/undici.js"
+      },
+      "require": {
+        "types": "./dist/adapters/undici.d.cts",
+        "default": "./dist/adapters/undici.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -117,15 +127,20 @@
     "publint": "^0.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
+    "undici": "^8.10.0",
     "vitepress": "^1.6.4",
     "vitest": "^2.1.8"
   },
   "packageManager": "pnpm@9.14.2",
   "peerDependencies": {
-    "@opentelemetry/api": "^1.9.0"
+    "@opentelemetry/api": "^1.9.0",
+    "undici": ">=7"
   },
   "peerDependenciesMeta": {
     "@opentelemetry/api": {
+      "optional": true
+    },
+    "undici": {
       "optional": true
     }
   }

@@ -376,6 +376,35 @@ the C4 architecture and the reasoning behind every default.
 
 
 <!-- #region otel -->
+## Guarding undici (`resilix/undici`)
+
+`resilix/fetch` covers the WHATWG API, but Node services reach the network through undici's
+`Dispatcher` — which is what `fetch`, `undici.request` and most SDK HTTP layers sit on. Guarding
+the dispatcher covers every call site at once, including ones you do not own:
+
+```ts
+import { Agent, setGlobalDispatcher } from "undici";
+import { resilixInterceptor } from "resilix/undici";
+
+setGlobalDispatcher(
+  new Agent().compose(
+    resilixInterceptor({ policies: [breaker({ slowCallMs: 3_000 }), limiter()] }),
+  ),
+);
+```
+
+Latency is time to first byte, taken at `onResponseStart` — never the time to drain the body. A
+refused request never reaches the network; the `RejectedError` arrives through `onResponseError`
+so it surfaces like any other undici failure.
+
+**Requires undici >= 7** — undici 7 renamed the whole handler surface, and `compose()` exists on
+6.x too, so an undici 6 install would get a silently inert interceptor. `undici` is an optional
+peer; core stays at zero dependencies.
+
+`timeoutMs`, `retry` and `hedge` are **not** available through this adapter. `dispatch` is
+callback-driven and returns synchronously, so the executor cannot wrap it — compose undici's own
+`interceptors.retry` and `headersTimeout` alongside instead. Every *policy* works unchanged.
+
 ## Telemetry (`resilix/otel`)
 
 Built in, not a plugin. Under 1% of opossum users instrument their breakers, which means
