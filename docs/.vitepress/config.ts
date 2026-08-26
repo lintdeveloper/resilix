@@ -24,6 +24,10 @@ export default defineConfig({
   // docs/ because that is where it is looked for, but it must not become a published page.
   srcExclude: ["DEPLOYING.md"],
 
+  // Without this there is no sitemap.xml at all, so the only way in is a crawler following
+  // links from the README. Cheap, and the difference between indexed and invisible.
+  sitemap: { hostname: "https://lintdeveloper.github.io/resilix/" },
+
   // A broken link is a build failure, not a warning. Most of this site is assembled by
   // including regions of the root README, and a moved heading would otherwise rot silently.
   // This catches missing PAGES only, not missing #anchors — `pnpm docs:check` does those.
@@ -54,6 +58,15 @@ export default defineConfig({
     ["link", { rel: "icon", href: `${base}favicon.svg`, type: "image/svg+xml" }],
     ["meta", { name: "theme-color", content: "#3b6fd4" }],
     ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:url", content: "https://lintdeveloper.github.io/resilix/" }],
+    ["meta", { property: "og:image", content: `https://lintdeveloper.github.io${base}og.png` }],
+    ["meta", { property: "og:image:width", content: "1200" }],
+    ["meta", { property: "og:image:height", content: "630" }],
+    // X/Twitter ignores og:image without a card type, and does not render SVG — hence a PNG,
+    // regenerated from scripts/og-card.html with headless Chrome.
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ["meta", { name: "twitter:title", content: "resilix — load limiting for JavaScript" }],
+    ["meta", { name: "twitter:image", content: `https://lintdeveloper.github.io${base}og.png` }],
     ["meta", { property: "og:title", content: "resilix — load limiting for JavaScript" }],
     [
       "meta",

@@ -1,5 +1,12 @@
 # resilix
 
+[![npm](https://img.shields.io/npm/v/resilix?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/resilix)
+[![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://www.npmjs.com/package/resilix?activeTab=dependencies)
+[![provenance](https://img.shields.io/badge/npm-provenance%20attested-blueviolet?logo=npm&logoColor=white)](https://www.npmjs.com/package/resilix#provenance)
+[![CI](https://github.com/lintdeveloper/resilix/actions/workflows/ci.yml/badge.svg)](https://github.com/lintdeveloper/resilix/actions/workflows/ci.yml)
+[![runtimes](https://github.com/lintdeveloper/resilix/actions/workflows/runtimes.yml/badge.svg)](https://github.com/lintdeveloper/resilix/actions/workflows/runtimes.yml)
+[![license](https://img.shields.io/npm/l/resilix?color=blue)](./LICENSE)
+
 **Load limiting for JavaScript.**
 
 A dependency that has slowed to a crawl is still "up". resilix measures latency, works out how
