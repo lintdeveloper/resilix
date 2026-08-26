@@ -14,7 +14,7 @@ much concurrency your upstream can actually absorb, and sheds the rest — befor
 
 Zero dependencies. No I/O.
 
-**Documentation: [lintdeveloper.github.io/resilix](https://lintdeveloper.github.io/resilix/)**
+**Documentation: [resilix.js.org](https://resilix.js.org)**
 
 Runs on Node 18/20/22/24, Bun, Deno and Cloudflare Workers — [verified in CI on every push](.github/workflows/runtimes.yml) by importing the built artifact and driving a real breaker,
 not asserted. The Workers job specifically proves a module-scope import is side-effect free,
@@ -455,7 +455,7 @@ new CircuitBreaker(action, { slowCallMs: 3000, slowCallRate: 0.5, consecutiveBac
 
 ## Documentation
 
-The full docs are at **[lintdeveloper.github.io/resilix](https://lintdeveloper.github.io/resilix/)**
+The full docs are at **[resilix.js.org](https://resilix.js.org)**
 — the same content as this README, organised into a guide, plus the decisions and specs below.
 
 | | |

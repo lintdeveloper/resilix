@@ -10,7 +10,14 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 const DIST = resolve("docs/.vitepress/dist");
-const BASE = "/resilix/";
+// Read the base from the built output rather than hardcoding it: it changed from "/resilix/"
+// to "/" the moment the site moved to a custom domain, and a stale value here would silently
+// stop matching links instead of failing.
+const BASE = (() => {
+  const home = readFileSync(join(DIST, "index.html"), "utf8");
+  const m = /href="(\/[^"]*?)assets\//.exec(home);
+  return m ? m[1] : "/";
+})();
 
 const walk = (dir) =>
   readdirSync(dir).flatMap((e) => {

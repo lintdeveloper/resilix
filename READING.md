@@ -87,7 +87,7 @@ gates v0.4; ch. 22 is worth doing before v0.5.
 
 This file is organised by **version gate** — what unblocks v0.3. When you have the code open
 instead and want to know what a file assumes you have read, use
-[Reading the code](https://lintdeveloper.github.io/resilix/guide/reading-the-code), which maps
+[Reading the code](https://resilix.js.org/guide/reading-the-code), which maps
 every source file to its sources and back again.
 
 ## Ongoing

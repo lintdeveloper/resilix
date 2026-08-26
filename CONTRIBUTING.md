@@ -97,7 +97,7 @@ run the runtime smoke scripts against the built artifact, which is how a file mo
 two red builds — `dist/fetch.js` had become `dist/adapters/fetch.js` and only the smoke scripts
 imported it by path. `pnpm verify` runs the lot.
 
-New to the codebase? [Reading the code](https://lintdeveloper.github.io/resilix/guide/reading-the-code)
+New to the codebase? [Reading the code](https://resilix.js.org/guide/reading-the-code)
 maps every source file to the paper or chapter behind it, and gives a dependency-ordered path
 through the ~3,500 lines.
 
