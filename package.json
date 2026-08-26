@@ -7,12 +7,22 @@
     "load-shedding",
     "load-limiting",
     "adaptive-concurrency",
+    "concurrency-limit",
     "resilience",
+    "fault-tolerance",
     "retry",
+    "retry-budget",
     "bulkhead",
     "timeout",
     "backpressure",
-    "slow-call"
+    "slow-call",
+    "hedging",
+    "rate-limit",
+    "rate-limiter",
+    "throttle",
+    "typescript",
+    "zero-dependency",
+    "cloudflare-workers"
   ],
   "license": "MIT",
   "author": "Musa Musa",
@@ -27,7 +37,7 @@
   "engines": {
     "node": ">=18"
   },
-  "files": ["dist"],
+  "files": ["dist", "!dist/**/*.map"],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

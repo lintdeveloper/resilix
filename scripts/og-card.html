@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1200px;height:630px;display:flex;flex-direction:column;justify-content:center;
+       padding:0 84px;background:#0d1117;color:#e6edf3;
+       font-family:Inter,system-ui,sans-serif;position:relative;overflow:hidden}
+  .spark{position:absolute;inset:auto 0 0 0;height:118px;opacity:.22}
+  h1{font-size:104px;font-weight:800;letter-spacing:-.04em;color:#fff;line-height:1}
+  .dot{color:#4f8cf7}
+  h2{font-size:40px;font-weight:600;margin-top:22px;color:#9fb4d1;letter-spacing:-.02em}
+  p{font-size:29px;margin-top:30px;color:#7d8fa8;line-height:1.45;max-width:930px}
+  .tags{display:flex;gap:13px;margin-top:38px}
+  span.t{font-size:22px;padding:9px 20px;border:1.5px solid #26374d;border-radius:999px;color:#9fb4d1}
+</style>
+<svg class="spark" viewBox="0 0 1200 118" preserveAspectRatio="none">
+  <path d="M0 86 L170 86 L232 52 L294 86 L455 86 L520 16 L585 104 L650 62 L1200 62"
+        fill="none" stroke="#4f8cf7" stroke-width="7"/>
+</svg>
+<h1>resilix<span class="dot">.</span></h1>
+<h2>Load limiting for JavaScript</h2>
+<p>A dependency that has slowed to a crawl is still&nbsp;"up". Measures latency, works out
+   how much concurrency your upstream can absorb, sheds the rest.</p>
+<div class="tags"><span class="t">zero dependencies</span><span class="t">no I/O</span>
+<span class="t">Node · Bun · Deno · Workers</span></div>

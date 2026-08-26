@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://lintdeveloper.github.io/resilix/sitemap.xml
