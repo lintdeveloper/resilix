@@ -19,5 +19,13 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test:coverage
+
+      # These three ran nowhere for days after the src/ reorg moved their targets, so nothing
+      # noticed that test:integration and test:perf pointed at deleted paths and that the
+      # opossum harness required dist/compat/opossum.cjs. A suite that is never executed is
+      # indistinguishable from a suite that passes.
+      - run: pnpm test:paths
+      - run: pnpm test:perf
+      - run: pnpm test:compat
       - run: pnpm build
       - run: pnpm check:package

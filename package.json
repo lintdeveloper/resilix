@@ -96,13 +96,14 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm check:package && pnpm test:smoke && pnpm docs:check",
+    "verify": "pnpm lint && pnpm test:paths && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm check:package && pnpm test:smoke && pnpm docs:check",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:check": "vitepress build docs && node scripts/check-links.mjs",
     "docs:preview": "vitepress preview docs",
     "dev": "tsup --watch",
     "test": "vitest run",
+    "test:paths": "node scripts/check-test-scripts.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
@@ -112,10 +113,10 @@
     "prepublishOnly": "pnpm build && pnpm test",
     "release": "changeset publish",
     "ci:version": "changeset version && biome format --write package.json",
-    "test:integration": "RESILIX_TEST_DATABASE_URL=${RESILIX_TEST_DATABASE_URL:-postgres://postgres:resilix@localhost:5459/resilix_test} vitest run src/sql-integration.test.ts",
+    "test:integration": "RESILIX_TEST_DATABASE_URL=${RESILIX_TEST_DATABASE_URL:-postgres://postgres:resilix@localhost:5459/resilix_test} vitest run src/scenarios/sql-integration.test.ts",
     "test:compat": "node scripts/opossum-compat.mjs",
     "test:smoke": "pnpm build && node scripts/smoke.mjs && node scripts/smoke.cjs",
-    "test:perf": "RESILIX_PERF=1 vitest run src/limiter.simulation.test.ts"
+    "test:perf": "RESILIX_PERF=1 vitest run src/policies/limiter.simulation.test.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
