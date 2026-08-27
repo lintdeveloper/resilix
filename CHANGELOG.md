@@ -1,5 +1,91 @@
 # resilix
 
+## 0.6.0
+
+### Minor Changes
+
+- 283d5d6: **New: `resilix/undici`** — guard undici's `Dispatcher` and every call site in the process is
+  covered at once, including ones you do not own.
+
+  ```ts
+  setGlobalDispatcher(
+    new Agent().compose(
+      resilixInterceptor({
+        policies: [breaker({ slowCallMs: 3_000 }), limiter()],
+      })
+    )
+  );
+  ```
+
+  `resilix/fetch` covers the WHATWG API, but Node services reach the network through undici — it is
+  what `fetch`, `undici.request` and most SDK HTTP layers sit on.
+
+  - Latency is **time to first byte**, taken at `onResponseStart`, never the time to drain the body.
+  - A refused request **never reaches the network**; `RejectedError` arrives via `onResponseError`.
+  - Verdicts come from the real status code, so a `404` is `answered` and a `503` is `overload`.
+  - **Requires undici >= 7.** undici 7 renamed the entire handler surface, and `compose()` exists on
+    6.x too, so an undici 6 install would get a silently inert interceptor. Verified against real
+    6.28, 7.29 and 8.10 rather than assumed. Optional peer; core stays at zero dependencies.
+  - `timeoutMs`, `retry` and `hedge` are **not** available here: `dispatch` is callback-driven and
+    returns synchronously, so the executor cannot wrap it (ADR-013). Compose undici's own
+    `interceptors.retry` / `headersTimeout` alongside. Every _policy_ works unchanged.
+
+  Also widens the `Gate.settleVerdict` type to accept `retryAfterMs`. The implementation always
+  took it; only the type omitted it, so anyone driving policies by hand had to discard the
+  upstream's own `Retry-After`. `resilix/undici` was the first caller to need it.
+
+### Patch Changes
+
+- f09f4d9: The opossum compatibility suite is now pinned to a commit instead of tracking `main`.
+
+  `.opossum-compat/` is not cached in CI, so every run re-fetched the suite — meaning the README's
+  "362 of 362" was measured against whatever opossum had merged that morning. A required check whose
+  expected value can change upstream without us is not a check. Bumping the pin is now a deliberate
+  act, with the new total.
+
+  A stalled file also reports its exit status and the tail of its output. It previously printed only
+  the word `STALLED` with the child's output discarded, so when `test.js` produced no TAP summary on
+  a CI runner while passing locally, there was nothing to diagnose from.
+
+- 9dd5d1a: `release.yml` can now be triggered manually (`workflow_dispatch`).
+
+  The publish fires on a push to `main`, and a push gives exactly one chance to run it. During the
+  2026-08-26 GitHub Actions outage no runs were created at all, which means a release commit landing
+  in that window would have consumed its changesets and left the version on `main` with nothing
+  published — recoverable only by pushing another commit purely to fire the event. Exposing the
+  dispatch is safe: `changeset publish` is a no-op for a version already on the registry.
+
+  `CONTRIBUTING.md` also now states when the branch-protection bypass is legitimate — a platform
+  outage or a production incident, with the local checks run first — and that it never extends to
+  force-push, branch deletion or tag immutability.
+
+- f09f4d9: `pnpm test:integration` is runnable again, and says what to do when it is not.
+
+  The path fix landed separately; this is what running it revealed. The describe-level gate only
+  checks whether `RESILIX_TEST_DATABASE_URL` is _set_, and the script always sets it with a
+  localhost default — so without a database the suite failed with a bare `AggregateError` and two
+  `node:net` stack frames. It now names the URL it tried, gives the `docker run` line, and points at
+  `pnpm test` for skipping.
+
+  Verified end to end against a real PostgreSQL 14.15: **13 of 13 pass**, so `classifySql`'s
+  mappings hold on 14 as well as the 16 they were captured against. One caveat now documented:
+  `initdb --auth=trust` makes the "bad password" case unfalsifiable, and that test reports
+  `NO THROW` until `pg_hba.conf` uses `scram-sha-256` for `127.0.0.1`.
+
+- 48d89e2: Three test suites had been silently disabled since the `src/` reorganisation, and none of them
+  ran in CI, so nothing reported it.
+
+  - `test:integration` pointed at `src/sql-integration.test.ts` (now `src/scenarios/`)
+  - `test:perf` pointed at `src/limiter.simulation.test.ts` (now `src/policies/`)
+  - `test:compat` generated its opossum shim once and cached it, so every harness kept requiring
+    `dist/compat/opossum.cjs` after the shim moved to `dist/adapters/`. The whole suite reported
+    **0 of 0 STALLED** — meaning the README's "362 of 362" claim was unverifiable for days. The
+    shim is now rewritten on every run, since it is a _generated_ file rather than a cached one.
+
+  All three now run in CI, and `pnpm test:paths` fails the build if any path named in a
+  `package.json` script does not exist. `verify` runs it first, so it fails in a second rather than
+  after a full coverage pass.
+
 ## 0.5.1
 
 ### Patch Changes
