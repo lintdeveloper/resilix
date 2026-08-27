@@ -33,7 +33,28 @@ suite("classifySql against a real PostgreSQL server", () => {
   beforeAll(async () => {
     pg = await import("pg");
     client = new pg.Client({ connectionString: URL_ });
-    await client.connect();
+    // `pnpm test:integration` always sets RESILIX_TEST_DATABASE_URL, defaulting to localhost, so
+    // the describe-level gate cannot tell "asked for integration tests" from "has a database".
+    // Without this the failure is a bare AggregateError with two node:net frames and no hint of
+    // what to do about it.
+    try {
+      await client.connect();
+    } catch (cause) {
+      throw new Error(
+        [
+          `No reachable Postgres at ${URL_}`,
+          "",
+          "  Start one:  docker run --rm -d -p 5459:5432 \\",
+          "                -e POSTGRES_PASSWORD=resilix -e POSTGRES_DB=resilix_test postgres:16",
+          "  Or:         pnpm test   (skips these entirely)",
+          "",
+          "These verify classifySql against real pg and Prisma errors, so they cannot run",
+          "against fixtures — a captured fixture keeps passing after a driver changes shape,",
+          "which is the whole reason this file exists.",
+        ].join("\n"),
+        { cause },
+      );
+    }
     await client.query("drop table if exists resilix_probe");
     await client.query(
       "create table resilix_probe (id int primary key, n int not null check (n > 0))",

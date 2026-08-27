@@ -22,7 +22,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const HARNESS = join(ROOT, ".opossum-compat");
-const REF = process.env.OPOSSUM_REF ?? "main";
+// PINNED, not "main". CI re-fetches on every run because .opossum-compat/ is not cached, so
+// tracking a branch meant the README's "362 of 362" was measured against whatever opossum had
+// merged that morning — a required check whose expected value upstream can change without us.
+// Bump this deliberately, with the new total, and never as a drive-by.
+const REF = process.env.OPOSSUM_REF ?? "decbedf63d7815049233e544dcb351590ff0c84e";
 
 /** Their suite, minus the files that unit-test opossum's private modules. */
 const TESTS = [
@@ -102,12 +106,12 @@ const run = (file) =>
     child.stderr.on("data", (d) => {
       out += d;
     });
-    child.on("close", () => {
+    child.on("close", (code, signal) => {
       clearTimeout(kill);
       const pass = Number(out.match(/^# pass\s+(\d+)/m)?.[1] ?? 0);
       const fail = Number(out.match(/^# fail\s+(\d+)/m)?.[1] ?? 0);
       const stalled = !/^# pass/m.test(out);
-      done({ file, pass, fail, stalled, out });
+      done({ file, pass, fail, stalled, out, code, signal });
     });
   });
 
@@ -131,6 +135,7 @@ const main = async () => {
   let fail = 0;
   console.log(`\n${"FILE".padEnd(32)}${"PASS".padStart(6)}${"FAIL".padStart(6)}`);
   console.log("-".repeat(46));
+  const stalls = results.filter((r) => r.stalled);
   for (const r of results.sort((a, b) => a.file.localeCompare(b.file))) {
     pass += r.pass;
     fail += r.fail;
@@ -144,6 +149,17 @@ const main = async () => {
   console.log(
     `${"TOTAL".padEnd(32)}${String(pass).padStart(6)}${String(fail).padStart(6)}   ${pct}%\n`,
   );
+
+  // A STALLED file used to report only the word STALLED, with the child's output discarded — so
+  // when test.js stalled on a CI runner while passing locally, there was nothing to diagnose from
+  // and the cause had to be guessed at. Print the exit status and the tail of what it actually
+  // said.
+  for (const r of stalls) {
+    console.error(`\n${r.file} produced no TAP summary  (exit=${r.code} signal=${r.signal})`);
+    const tail = r.out.trimEnd().split("\n").slice(-12);
+    for (const line of tail) console.error(`    ${line}`);
+    if (r.out.trim() === "") console.error("    (no output at all)");
+  }
 
   console.log("Excluded, and why:");
   for (const [f, why] of Object.entries(EXCLUDED)) console.log(`  ${f.padEnd(20)} ${why}`);

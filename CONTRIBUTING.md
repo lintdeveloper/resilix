@@ -84,7 +84,7 @@ pnpm verify            # everything CI runs — do this before pushing
 pnpm test              # unit tests
 pnpm test:coverage     # with thresholds
 pnpm test:compat       # opossum's OWN suite against our shim (362/362)
-pnpm test:integration  # classifySql against a real Postgres; needs RESILIX_TEST_DATABASE_URL
+pnpm test:integration  # classifySql against a real Postgres (see below)
 pnpm lint              # biome, including the restricted-globals rule
 pnpm typecheck
 pnpm build
@@ -100,6 +100,23 @@ imported it by path. `pnpm verify` runs the lot.
 New to the codebase? [Reading the code](https://resilix.js.org/guide/reading-the-code)
 maps every source file to the paper or chapter behind it, and gives a dependency-ordered path
 through the ~3,500 lines.
+
+### Running the SQL integration tests
+
+They need a reachable Postgres; `pnpm test:integration` supplies a default URL pointing at
+port 5459, so it fails rather than skips if nothing is listening. The error message carries this
+command, but for reference:
+
+```bash
+docker run --rm -d -p 5459:5432 \
+  -e POSTGRES_PASSWORD=resilix -e POSTGRES_DB=resilix_test postgres:16
+```
+
+Without Docker, a local Postgres works — note that `initdb --auth=trust` makes the
+"bad password" case unfalsifiable, so set a password and use `scram-sha-256` for
+`127.0.0.1` in `pg_hba.conf` or that one test fails with `NO THROW`.
+
+`pnpm test` skips the whole file, so the default workflow needs no database at all.
 
 Specs live in `docs/specs/` and are written **before** the code they describe — the adaptive
 limiter and the retry/throttling work both gated on theirs. If you are adding a policy, the spec
