@@ -131,6 +131,35 @@ maintainer.
 pointing at the commit whose provenance attestation says it built `resilix@0.5.0`; a moved tag
 makes that attestation a lie.
 
+### When the admin bypass is legitimate
+
+The bypass on `main: PR + green checks` exists so a solo maintainer is never locked out. It is not
+a convenience, and "the checks are slow" is not a reason. There are two:
+
+1. **A platform outage means the checks cannot run at all.** On 2026-08-26 GitHub Actions was in
+   `major_outage` for over an hour and created zero runs repo-wide. A PR in that window is
+   `BLOCKED` forever with nothing to wait for. Check
+   [githubstatus.com](https://www.githubstatus.com) before concluding it is your branch — the
+   first hour of that outage was spent suspecting a workflow-file edit and then a push credential,
+   both wrong.
+2. **A production incident** where the fix must land faster than a full matrix run.
+
+In both cases, **run the checks locally first and say so in the merge**:
+
+```bash
+pnpm verify        # lint, paths, typecheck, coverage, build, package, smoke, docs
+pnpm test:compat   # opossum's own suite — not in verify, it needs a network fetch
+pnpm test:perf
+```
+
+`pnpm verify` covers everything the nine required checks do except the multi-runtime matrix, which
+only CI can provide. If you bypass, the next green CI run on `main` is what actually confirms it —
+watch it.
+
+The bypass does **not** extend to `main: no force-push, no deletion` or to tag immutability. Those
+have no bypass actor at all, deliberately: they are the rules whose violation destroys work rather
+than merely making a mess.
+
 ### Required checks, and the two that are deliberately absent
 
 Required: `build`, `node 18`, `node 20`, `node 22`, `node 24`, `bun`, `deno`,
