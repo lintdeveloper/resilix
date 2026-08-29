@@ -128,8 +128,33 @@ const main = async () => {
     execFileSync("npm", ["run", "build"], { cwd: ROOT, stdio: "ignore" });
   }
 
+  // Retry a file that produced no TAP summary, once, before believing it.
+  //
+  // opossum's test.js is timing-sensitive: it opens a breaker, waits exactly
+  // `resetTimeout` with a setTimeout of the same duration, then fires and expects
+  // a half-open probe. That is a dead heat, and a loaded CI runner decides it — a
+  // late fire rejects with EOPENBREAKER on a `.then()` chain that has no
+  // `.catch()`, so the process dies and the file reports 0 of 0.
+  //
+  // Observed failing on two pull requests and passing on a rerun of the SAME
+  // commit with no changes. This suite is a REQUIRED check, and a flaky required
+  // check is worse than none: it teaches you to ignore red. A single retry keeps
+  // the signal (a genuine break fails twice) without the noise.
+  //
+  // This is not a root cause. The race is in opossum's test, not in the shim, and
+  // matching their exact timer ordering is not something a compatibility layer
+  // can guarantee from the outside.
   const results = [];
-  for (const f of TESTS.filter((f) => f !== "common.js")) results.push(await run(f));
+  for (const f of TESTS.filter((f) => f !== "common.js")) {
+    let result = await run(f);
+    if (result.stalled) {
+      console.log(`  ${f} produced no summary — retrying once`);
+      const second = await run(f);
+      if (!second.stalled) result = second;
+      else result = { ...second, retried: true };
+    }
+    results.push(result);
+  }
 
   let pass = 0;
   let fail = 0;
@@ -155,7 +180,10 @@ const main = async () => {
   // and the cause had to be guessed at. Print the exit status and the tail of what it actually
   // said.
   for (const r of stalls) {
-    console.error(`\n${r.file} produced no TAP summary  (exit=${r.code} signal=${r.signal})`);
+    console.error(
+      `\n${r.file} produced no TAP summary on ${r.retried ? "two attempts" : "one attempt"}` +
+        `  (exit=${r.code} signal=${r.signal})`,
+    );
     const tail = r.out.trimEnd().split("\n").slice(-12);
     for (const line of tail) console.error(`    ${line}`);
     if (r.out.trim() === "") console.error("    (no output at all)");
