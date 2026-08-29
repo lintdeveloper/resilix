@@ -24,6 +24,29 @@ from the root, so `base` must be `"/"`. On a project page (`lintdeveloper.github
 must be `"/resilix/"` or every asset 404s. `scripts/check-links.mjs` now reads the base out of the
 built HTML rather than hardcoding it, so it cannot silently stop matching links after a change.
 
+## docs/public — files served verbatim from the root
+
+Everything in `docs/public/` is copied to the site root at build time, so
+`docs/public/x` becomes `https://resilix.js.org/x`. Nothing there is processed — it is where files
+that must exist at an exact path live.
+
+| File | Why |
+|---|---|
+| `favicon.svg` | browser tab icon |
+| `og.png` | social card, 1200×630, regenerated from `scripts/og-card.html` |
+| `robots.txt` | points crawlers at the sitemap |
+| `resilix-architecture.pdf` | C4 architecture and the original version plan |
+| `google*.html` | **Google Search Console ownership proof — do not delete** |
+
+That last one is fragile: Search Console re-checks it periodically and **silently unverifies the
+property if it 404s**, which stops search data arriving with no obvious cause. It is one line of
+text; keep it.
+
+**Do not put a `.md` file in `docs/public/`.** Markdown anywhere under `docs/` is page source, so a
+`docs/public/README.md` renders as `/public/README` *and enters the sitemap* — which is how a
+private note ends up submitted to Google. Notes about the site belong in this file, which
+`srcExclude` keeps unpublished.
+
 ## Why resilix.js.org, and what went wrong the first time
 
 `resilix.github.io` is unobtainable — that hostname comes from a GitHub *account* name, and
