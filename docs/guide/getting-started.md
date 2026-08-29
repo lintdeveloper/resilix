@@ -1,3 +1,7 @@
+---
+description: "Install resilix and build your first pipeline: slow-call circuit breaking, marking time-to-first-byte on streams, and classifying SQL errors correctly."
+---
+
 # Getting started
 
 ```bash

@@ -1,3 +1,7 @@
+---
+description: "Why resilix is shaped the way it is — sixteen design decisions with the alternatives that were rejected. Every ADR-00N comment in the source resolves here."
+---
+
 # Design decisions
 
 Why resilix is shaped the way it is. Source comments cite these by number (`ADR-007`), so this

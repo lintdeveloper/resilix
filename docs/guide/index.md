@@ -1,3 +1,7 @@
+---
+description: "Why resilix exists: JavaScript's load limiting is locked inside gRPC and the AWS SDK, and a failure-rate circuit breaker is blind to an upstream that degrades without erroring."
+---
+
 # What resilix is
 
 <!--@include: ../../README.md#why-->

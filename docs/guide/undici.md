@@ -1,3 +1,7 @@
+---
+description: "Compose resilix onto undici's Dispatcher and every call site in the process is guarded at once, including ones you do not own."
+---
+
 # Guarding undici
 
 `resilix/fetch` covers the WHATWG API, but Node services overwhelmingly reach the network through

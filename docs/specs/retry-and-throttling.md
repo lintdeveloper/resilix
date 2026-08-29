@@ -1,3 +1,7 @@
+---
+description: "The v0.4 spec: jitter strategies, retry budget arithmetic, and Google SRE's client-side throttling formula."
+---
+
 # Spec: retry, budgets, throttling and rate limiting (v0.4)
 
 **Status:** implemented in v0.4.

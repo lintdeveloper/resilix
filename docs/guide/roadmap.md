@@ -1,3 +1,7 @@
+---
+description: "What has shipped in each resilix version, what is coming next, and what is deliberately not planned."
+---
+
 # Roadmap
 
 resilix is **pre-release**. The public API is settling but not frozen; anything user-visible

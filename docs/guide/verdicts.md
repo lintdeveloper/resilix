@@ -1,3 +1,7 @@
+---
+description: "One settled call, read differently by each policy. Why a 404 is healthy, a 429 is backpressure, and our own rejections are never evidence about the upstream."
+---
+
 # The verdict model
 
 <!--@include: ../../README.md#verdicts-->

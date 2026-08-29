@@ -1,3 +1,7 @@
+---
+description: "The v0.5 spec: hedged requests, Netflix criticality buckets, and relative tenant fairness."
+---
+
 # Spec: hedging, criticality and tenant fairness (v0.5)
 
 **Status:** implemented in v0.5. Two of the four open questions are now resolved; see §7.

@@ -1,3 +1,7 @@
+---
+description: "Adaptive concurrency limiting for JavaScript: Vegas queue estimation over an O(1) P² quantile estimator, shedding load proportionally rather than at a cliff."
+---
+
 # Adaptive concurrency limiting
 
 <!--@include: ../../README.md#limiter-->

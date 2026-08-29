@@ -1,3 +1,7 @@
+---
+description: "Design specs written before the code they describe, each carrying the provenance of every default it proposes."
+---
+
 # Specs
 
 A spec is the *how* — the algorithm, the field list, the edge cases, the provenance of every

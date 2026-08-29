@@ -75,6 +75,43 @@ export default defineConfig({
     ],
   ],
 
+  /**
+   * Per-page description, og:title and canonical.
+   *
+   * VitePress gives every page a unique <title> but leaves `description` and the
+   * og:* tags at whatever the site-level config says — so all 19 pages shipped
+   * the same meta description and the same og:title. Search Console reports that
+   * as duplicate metadata, the search snippet for every page is identical, and
+   * sharing a deep link shows the homepage's card no matter which page it is.
+   *
+   * `description` comes from page frontmatter, falling back to the site default.
+   */
+  transformPageData(pageData) {
+    const path = pageData.relativePath.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "");
+    const canonical = `${SITE}${base}${path}`;
+    const title = pageData.frontmatter.title ?? pageData.title;
+    const description = pageData.frontmatter.description ?? pageData.description;
+
+    pageData.frontmatter.head ??= [];
+    pageData.frontmatter.head.push(
+      ["link", { rel: "canonical", href: canonical }],
+      ["meta", { property: "og:url", content: canonical }],
+    );
+    if (title) {
+      const scoped = path === "" ? "resilix — load limiting for JavaScript" : `${title} · resilix`;
+      pageData.frontmatter.head.push(
+        ["meta", { property: "og:title", content: scoped }],
+        ["meta", { name: "twitter:title", content: scoped }],
+      );
+    }
+    if (description) {
+      pageData.frontmatter.head.push(
+        ["meta", { name: "description", content: description }],
+        ["meta", { property: "og:description", content: description }],
+      );
+    }
+  },
+
   themeConfig: {
     siteTitle: "resilix",
     outline: [2, 3],
