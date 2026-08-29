@@ -1,6 +1,6 @@
 {
   "name": "resilix",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Load limiting for JavaScript: adaptive concurrency limiting and slow-call circuit breaking. Sheds load when an upstream slows, not just when it errors.",
   "keywords": [
     "circuit-breaker",
