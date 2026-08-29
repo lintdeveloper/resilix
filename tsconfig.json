@@ -26,5 +26,7 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "dist"
   },
-  "include": ["src"]
+  // examples/ is type-checked too: an example that does not compile is worse
+  // than no example, and it is the first code anyone reads.
+  "include": ["src", "examples"]
 }

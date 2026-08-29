@@ -27,5 +27,10 @@ jobs:
       - run: pnpm test:paths
       - run: pnpm test:perf
       - run: pnpm test:compat
+
+      # The example is the first code most people read, so a broken one is worse
+      # than none. Nine seconds at 4x speed traverses all four provider phases —
+      # enough to prove it runs, not enough to slow the build.
+      - run: RESILIX_EXAMPLE_MS=9000 RESILIX_EXAMPLE_SPEED=4 pnpm example:gateway
       - run: pnpm build
       - run: pnpm check:package

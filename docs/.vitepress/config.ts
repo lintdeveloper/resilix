@@ -134,6 +134,7 @@ export default defineConfig({
           items: [
             { text: "What resilix is", link: "/guide/" },
             { text: "Getting started", link: "/guide/getting-started" },
+            { text: "A worked example", link: "/guide/example" },
             { text: "The verdict model", link: "/guide/verdicts" },
           ],
         },

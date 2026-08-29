@@ -45,6 +45,17 @@ because customers submitted bad input. resilix classifies outcomes into verdicts
 
 <!-- #endregion why -->
 
+## See it work
+
+```bash
+pnpm example:gateway
+```
+
+A simulated provider degrades from ~140ms to seconds **at a flat error rate**, then recovers.
+Watch the limiter walk concurrency down before any failures appear —
+[examples/llm-gateway](examples/llm-gateway), written up at
+[resilix.js.org/guide/example](https://resilix.js.org/guide/example).
+
 <!-- #region quickstart -->
 ## Quick start
 
