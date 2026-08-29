@@ -1,3 +1,7 @@
+---
+description: "Drive resilix policies by hand with gate(). Every policy is a synchronous state machine, so it works from a stream consumer or a queue worker."
+---
+
 # Driving policies by hand
 
 <!--@include: ../../README.md#manual-->

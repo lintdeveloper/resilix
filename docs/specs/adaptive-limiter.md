@@ -1,3 +1,7 @@
+---
+description: "The v0.3 spec: Vegas queue estimation, P² streaming quantiles, the baseline problem, and every default with its source."
+---
+
 # Spec: adaptive concurrency limiter (v0.3)
 
 **Status:** implemented in v0.3.

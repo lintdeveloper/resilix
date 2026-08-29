@@ -1,3 +1,7 @@
+---
+description: "A map from every source file to the paper or chapter behind it, and a dependency-ordered path through the codebase."
+---
+
 # Reading the code
 
 Every non-obvious number and control loop in resilix came from somewhere. This page is the index
