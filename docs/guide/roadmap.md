@@ -12,6 +12,7 @@ lands with a changeset and a version bump.
 | **v0.3** | adaptive concurrency limiting · P² streaming quantiles · proportional shedding |
 | **v0.4** | retry with full jitter · shared retry budgets · SRE adaptive throttler · token-bucket rate limiter |
 | **v0.5** | hedging with cancellation · criticality buckets · tenant fairness |
+| **v0.6** | `resilix/undici` — guard the dispatcher and every call site is covered at once |
 
 Each of v0.3–v0.5 was built to a spec written first —
 [adaptive limiter](../specs/adaptive-limiter),
@@ -20,8 +21,9 @@ Each of v0.3–v0.5 was built to a spec written first —
 
 ## Ahead
 
-- **More adapters.** `resilix/undici`, `resilix/nest`, `resilix/hono` — the same policies behind
-  the interface each ecosystem already uses, on the same optional-peer model as `resilix/otel`.
+- **More adapters.** `resilix/nest` and `resilix/hono` — the same policies behind the interface
+  each ecosystem already uses, on the same optional-peer model as `resilix/otel` and
+  [`resilix/undici`](./undici).
 - **Inbound protection.** Everything so far guards calls you *make*. The symmetric problem —
   shedding load you *receive*, before it reaches your handlers — reuses the limiter and the
   criticality buckets but needs a different integration surface.

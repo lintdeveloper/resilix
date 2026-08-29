@@ -369,9 +369,10 @@ Pre-release.
   built to [`docs/specs/adaptive-limiter.md`](docs/specs/adaptive-limiter.md)
 - **v0.4** retry with full jitter · shared retry budgets · SRE adaptive throttler · token-bucket rate limiter
 - **v0.5** hedging with cancellation · criticality buckets · tenant fairness
+- **v0.6** `resilix/undici` — guard the dispatcher, and every call site in the process is covered
 
-What is still ahead — adaptive throttling, execution budgets, hedging, criticality and
-per-tenant fairness, then inbound protection — is in [`docs/public/resilix-architecture.pdf`](docs/public/resilix-architecture.pdf), along with
+What is still ahead — `resilix/nest` and `resilix/hono`, then inbound protection: shedding load
+you *receive* rather than load you send — is in [`docs/public/resilix-architecture.pdf`](docs/public/resilix-architecture.pdf), along with
 the C4 architecture and the reasoning behind every default.
 
 
